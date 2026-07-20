@@ -46,6 +46,7 @@
   box-sizing: border-box;
 }
 
+.tab-team-avatar .profile-avatar,
 .tab-team-avatar img {
   width: 100%;
   height: 100%;

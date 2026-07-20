@@ -2,6 +2,7 @@ import { type MouseEvent } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useApp } from '../state/AppContext';
 import { requestHomeRefresh } from '../utils/homeRefresh';
+import { ProfileAvatar } from '../components/ProfileAvatar';
 import './TabBar.css';
 
 const tabs = [
@@ -42,7 +43,7 @@ export function TabBar() {
             <span className="tab-fab">{t.icon}</span>
           ) : t.to === '/my' && activeTeam ? (
             <span className="tab-team-avatar">
-              <img src={activeTeam.cover} alt="" />
+              <ProfileAvatar src={activeTeam.cover} />
             </span>
           ) : (
             <span className="icon">{t.icon}</span>

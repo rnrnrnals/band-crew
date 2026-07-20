@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { BandTeam, TeamMember } from '../../types';
 import { POSITION_LABELS } from '../../mock/positions';
-import { getMemberAvatar, getMemberRoleLabel, sortMembersWithLeaderFirst } from '../../mock/memberUtils';
+import { getMemberAvatar, sortMembersWithLeaderFirst } from '../../mock/memberUtils';
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import { MemberProfileSheet } from './MemberProfileSheet';
 import './FollowListSheet.css';
 import './MemberListSheet.css';
@@ -55,12 +56,9 @@ export function MemberListSheet({ team, onClose }: MemberListSheetProps) {
                 }`}
                 onClick={() => setSelectedMember(m)}
               >
-                <img src={getMemberAvatar(m)} alt="" className="member-sheet-avatar" />
+                <ProfileAvatar src={getMemberAvatar(m)} className="member-sheet-avatar" />
                 <div>
-                  <strong>
-                    {m.nick}
-                    {getMemberRoleLabel(m) ? ` · ${getMemberRoleLabel(m)}` : ''}
-                  </strong>
+                  <strong>{m.nick}</strong>
                   <span>{POSITION_LABELS[m.position]}</span>
                 </div>
               </button>

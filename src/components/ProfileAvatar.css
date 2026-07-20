@@ -1,0 +1,23 @@
+.profile-avatar {
+  display: block;
+  object-fit: cover;
+}
+
+.profile-avatar-empty {
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+}
+
+.profile-avatar:not(.profile-avatar-empty) {
+  border: 1px solid var(--hairline);
+}
+
+.profile-avatar-square.profile-avatar-empty,
+.profile-avatar-square:not(.profile-avatar-empty) {
+  border-radius: 10px;
+}
+
+.profile-avatar:not(.profile-avatar-square).profile-avatar-empty,
+.profile-avatar:not(.profile-avatar-square):not(.profile-avatar-empty) {
+  border-radius: 50%;
+}

@@ -73,8 +73,16 @@
 }
 
 .gate-msg {
-  color: var(--amber);
   font-size: 13px;
+  line-height: 1.5;
+}
+
+.gate-msg.is-ok {
+  color: var(--amber);
+}
+
+.gate-msg.is-error {
+  color: var(--red);
 }
 
 .gate-submit {

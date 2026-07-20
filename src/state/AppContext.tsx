@@ -152,7 +152,12 @@ interface AppState {
   setTeamCoLeader: (memberId: string | null) => Promise<{ ok: boolean; message: string }>;
   refreshAppData: () => Promise<void>;
   loadTeam: (teamId: string) => Promise<BandTeam | undefined>;
-  createTeam: (name: string, genre: string, nick: string, position: PositionId) => void;
+  createTeam: (
+    name: string,
+    genre: string,
+    nick: string,
+    position: PositionId,
+  ) => Promise<{ ok: boolean; message: string }>;
   joinTeam: (
     code: string,
     nick: string,
@@ -632,19 +637,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const activeTeam = teams.find((t) => t.id === activeTeamId) ?? null;
 
-  const createTeam = (name: string, genre: string, nick: string, position: PositionId) => {
+  const createTeam = async (
+    name: string,
+    genre: string,
+    nick: string,
+    position: PositionId,
+  ): Promise<{ ok: boolean; message: string }> => {
+    if (useDb && !userId) {
+      return { ok: false, message: '로그인 세션이 만료됐어요. 다시 로그인해 주세요.' };
+    }
+
     if (useDb && userId) {
-      void createTeamInDb(userId, userProfile, name, genre, nick, position)
-        .then((team) => {
-          mergeTeam(team);
-          const trimmedNick = nick.trim();
-          const nextUser = { ...userProfile, name: trimmedNick };
-          setUserProfile(nextUser);
-          setMyTeamIds((prev) => (prev.includes(team.id) ? prev : [...prev, team.id]));
-          setActiveTeamId(team.id);
-        })
-        .catch((err) => console.error('[BandCrew] createTeam failed', err));
-      return;
+      try {
+        const team = await createTeamInDb(userId, userProfile, name, genre, nick, position);
+        mergeTeam(team);
+        const trimmedNick = nick.trim();
+        const nextUser = { ...userProfile, name: trimmedNick };
+        setUserProfile(nextUser);
+        setMyTeamIds((prev) => (prev.includes(team.id) ? prev : [...prev, team.id]));
+        setActiveTeamId(team.id);
+        return { ok: true, message: `${team.name} 팀을 만들었어요!` };
+      } catch (err) {
+        console.error('[BandCrew] createTeam failed', err);
+        return {
+          ok: false,
+          message: err instanceof Error ? err.message : '팀 만들기에 실패했어요.',
+        };
+      }
     }
 
     const id = `t-${Date.now()}`;
@@ -662,7 +681,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       name,
       genre,
       bio: '새로 만든 밴드팀입니다.',
-      cover: 'https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800&h=500&fit=crop',
+      cover: '',
       members: [member],
     };
     const nextUser = { ...userProfile, name: trimmedNick };
@@ -678,6 +697,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       myTeamIds: nextMine,
       activeTeamId: id,
     });
+    return { ok: true, message: `${name.trim()} 팀을 만들었어요!` };
   };
 
   const joinTeam = async (

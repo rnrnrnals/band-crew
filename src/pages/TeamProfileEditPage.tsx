@@ -7,6 +7,7 @@ import { isLikelyImageFile } from '../utils/prepareProfileImageFile';
 import { ensurePublishedImageUrl } from '../utils/mediaUpload';
 import { clampTeamBio, normalizeTeamBio, TEAM_BIO_MAX_CHARS, TEAM_BIO_MAX_LINES } from '../utils/teamBio';
 import { normalizeInstagramUsername } from '../utils/teamInstagram';
+import { ProfileAvatar } from '../components/ProfileAvatar';
 import './MyPage.css';
 import './ProfileEditPage.css';
 
@@ -62,7 +63,7 @@ export function TeamProfileEditPage() {
       <p className="page-sub">{activeTeam.name} 팀의 프로필 사진, 장르, 인스타그램, 소개를 바꿀 수 있어요.</p>
 
       <div className="profile-edit-cover">
-        <img src={cover} alt="" />
+        <ProfileAvatar src={cover} className="profile-edit-cover-img" />
         <button type="button" className="btn" onClick={() => fileInputRef.current?.click()}>
           프로필 사진 변경
         </button>

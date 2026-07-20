@@ -213,7 +213,8 @@
   border: 2px solid var(--bg-deep);
 }
 
-.tf-avatar {
+.tf-avatar,
+.tf-avatar.profile-avatar-empty {
   width: 78px;
   height: 78px;
   border-radius: 50%;
