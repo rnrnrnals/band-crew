@@ -48,11 +48,12 @@ export function UserProfileEditPage() {
         bio,
         instagram: normalizeInstagramUsername(instagram),
       });
-      navigate('/my/settings');
     } catch (err) {
-      setError(err instanceof Error ? err.message : '저장하지 못했어요.');
+      setError(err instanceof Error && err.message.trim() ? err.message : '저장하지 못했어요.');
       setSaving(false);
+      return;
     }
+    navigate('/my/settings');
   };
 
   return (
@@ -73,7 +74,7 @@ export function UserProfileEditPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
+          accept="image/*,.heic,.heif"
           className="profile-edit-file"
           onChange={(e) => {
             void onAvatarSelected(e.target.files?.[0]);

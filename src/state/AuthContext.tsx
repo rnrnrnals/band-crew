@@ -63,12 +63,23 @@ async function fetchDbProfile(userId: string): Promise<DbProfile | null> {
     .eq('id', userId)
     .maybeSingle();
 
-  if (error) {
-    console.warn('[BandCrew] profile fetch failed', error.message);
-    return null;
+  if (!error) return data as DbProfile | null;
+
+  if (/instagram|column.*does not exist/i.test(error.message)) {
+    const { data: fallback, error: fallbackError } = await supabase
+      .from(DB_TABLES.profiles)
+      .select('display_name, avatar_url, bio')
+      .eq('id', userId)
+      .maybeSingle();
+    if (fallbackError) {
+      console.warn('[BandCrew] profile fetch failed', fallbackError.message);
+      return null;
+    }
+    return fallback as DbProfile | null;
   }
 
-  return data as DbProfile | null;
+  console.warn('[BandCrew] profile fetch failed', error.message);
+  return null;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

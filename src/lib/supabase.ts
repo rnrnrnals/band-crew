@@ -16,6 +16,7 @@ export function getSupabase(): SupabaseClient | null {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
+        storageKey: 'band-crew-supabase-auth',
       },
     });
   }

@@ -1,8 +1,22 @@
 import { loadImageFromBlob } from './squareImageCrop';
-import { getPreferredImageExtension, getPreferredImageMime } from './imageOutput';
+import {
+  ensureImageBlobMime,
+  getPreferredImageExtension,
+  getPreferredImageMime,
+} from './imageOutput';
+
+function normalizePickedImageFile(file: File): File {
+  return ensureImageBlobMime(file, file.name) as File;
+}
 
 export function isLikelyImageFile(file: File): boolean {
-  if (file.type.startsWith('image/')) return true;
+  const type = file.type?.toLowerCase() ?? '';
+  if (type.startsWith('image/')) return true;
+  if (!type || type === 'application/octet-stream') {
+    if (/\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(file.name)) return true;
+    // Android gallery picks often arrive without a MIME type or extension.
+    return file.size > 0;
+  }
   return /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(file.name);
 }
 
@@ -20,18 +34,19 @@ function toOutputImageFile(blob: Blob, originalName: string): File {
 }
 
 export async function prepareProfileImageFile(file: File): Promise<File> {
-  if (!isLikelyImageFile(file)) {
+  const normalized = normalizePickedImageFile(file);
+  if (!isLikelyImageFile(normalized)) {
     throw new Error('사진 파일만 선택할 수 있어요.');
   }
 
-  let blob: Blob = file;
+  let blob: Blob = normalized;
 
-  if (isHeicFile(file)) {
+  if (isHeicFile(normalized)) {
     try {
       const mod = await import('heic2any');
       const heic2any = mod.default;
       const converted = await heic2any({
-        blob: file,
+        blob: normalized,
         toType: getPreferredImageMime(),
         quality: 0.9,
       });
@@ -51,7 +66,7 @@ export async function prepareProfileImageFile(file: File): Promise<File> {
     );
   }
 
-  return blob instanceof File && !isHeicFile(file) && blob.type === getPreferredImageMime()
-    ? blob
-    : toOutputImageFile(blob, file.name);
+  return blob instanceof File && !isHeicFile(normalized) && blob.type === getPreferredImageMime()
+    ? (blob as File)
+    : toOutputImageFile(blob, normalized.name);
 }

@@ -2,9 +2,18 @@ export type PreferredImageMime = 'image/webp' | 'image/jpeg';
 
 let cachedPreferredImageMime: PreferredImageMime | null = null;
 
+function prefersJpegPipeline(): boolean {
+  if (typeof navigator === 'undefined') return true;
+  return /Android/i.test(navigator.userAgent);
+}
+
 export function getPreferredImageMime(): PreferredImageMime {
   if (cachedPreferredImageMime) return cachedPreferredImageMime;
   if (typeof document === 'undefined') return 'image/jpeg';
+  if (prefersJpegPipeline()) {
+    cachedPreferredImageMime = 'image/jpeg';
+    return cachedPreferredImageMime;
+  }
 
   const canvas = document.createElement('canvas');
   canvas.width = 1;
@@ -16,6 +25,41 @@ export function getPreferredImageMime(): PreferredImageMime {
 
 export function getPreferredImageExtension(): 'webp' | 'jpg' {
   return getPreferredImageMime() === 'image/webp' ? 'webp' : 'jpg';
+}
+
+export function guessImageMimeFromName(name: string): string | null {
+  const ext = name.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'png':
+      return 'image/png';
+    case 'webp':
+      return 'image/webp';
+    case 'gif':
+      return 'image/gif';
+    case 'heic':
+      return 'image/heic';
+    case 'heif':
+      return 'image/heif';
+    case 'bmp':
+      return 'image/bmp';
+    case 'avif':
+      return 'image/avif';
+    default:
+      return null;
+  }
+}
+
+export function ensureImageBlobMime(blob: Blob, nameHint = ''): Blob {
+  const type = blob.type?.toLowerCase() ?? '';
+  if (type.startsWith('image/') && type !== 'image/*') return blob;
+  const guessed = guessImageMimeFromName(nameHint) ?? 'image/jpeg';
+  if (blob instanceof File) {
+    return new File([blob], blob.name || 'photo.jpg', { type: guessed, lastModified: blob.lastModified });
+  }
+  return new Blob([blob], { type: guessed });
 }
 
 export function canvasToImageBlob(

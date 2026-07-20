@@ -11,6 +11,15 @@ import { ProfileAvatar } from '../components/ProfileAvatar';
 import './MyPage.css';
 import './ProfileEditPage.css';
 
+function readSaveError(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) return err.message;
+  if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
+    const message = err.message.trim();
+    if (message) return message;
+  }
+  return '저장하지 못했어요.';
+}
+
 export function TeamProfileEditPage() {
   const { activeTeam, updateTeamProfile } = useApp();
   const navigate = useNavigate();
@@ -46,11 +55,12 @@ export function TeamProfileEditPage() {
         genre: genre.trim() || activeTeam.genre,
         instagram: normalizeInstagramUsername(instagram),
       });
-      navigate('/my');
     } catch (err) {
-      setError(err instanceof Error ? err.message : '저장하지 못했어요.');
+      setError(readSaveError(err));
       setSaving(false);
+      return;
     }
+    navigate('/my');
   };
 
   return (
@@ -70,7 +80,7 @@ export function TeamProfileEditPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
+          accept="image/*,.heic,.heif"
           className="profile-edit-file"
           onChange={(e) => {
             void onCoverSelected(e.target.files?.[0]);

@@ -464,7 +464,15 @@ export async function updateTeamProfileInDb(
   if (Object.keys(updates).length === 0) return;
 
   const { error } = await supabase.from(DB_TABLES.teams).update(updates).eq('id', teamId);
-  if (error) throw error;
+  if (error && updates.instagram !== undefined && /instagram|column.*does not exist/i.test(error.message)) {
+    const { instagram: _ignored, ...rest } = updates;
+    if (Object.keys(rest).length > 0) {
+      const { error: retryError } = await supabase.from(DB_TABLES.teams).update(rest).eq('id', teamId);
+      if (retryError) throw new Error(formatTeamMutationError(retryError, '팀 프로필 저장에 실패했어요.'));
+    }
+    return;
+  }
+  if (error) throw new Error(formatTeamMutationError(error, '팀 프로필 저장에 실패했어요.'));
 }
 
 export async function generateInviteCodeInDb(teamId: string): Promise<{ code: string; createdAt: string }> {

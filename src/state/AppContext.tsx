@@ -51,7 +51,7 @@ import {
 import { normalizeTeamBio } from '../utils/teamBio';
 import { normalizeInstagramUsername } from '../utils/teamInstagram';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { findCurrentMember, isCurrentMember, isTeamLeader, canManageTeam as memberCanManageTeam } from '../mock/memberUtils';
+import { findCurrentMember, isCurrentMember, isTeamLeader, canManageTeam as memberCanManageTeam, mergeDisplayProfile } from '../mock/memberUtils';
 import { bootstrapUserData, type BootstrapData } from '../services/bootstrapService';
 import {
   createAudioCommentInDb,
@@ -266,7 +266,7 @@ function normalizeTeamAudios(tracks: TeamAudioTrack[]): TeamAudioTrack[] {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const { profile: authProfile, updateRemoteProfile, authRequired, session } = useAuth();
+  const { profile: authProfile, updateRemoteProfile, authRequired, session, authLoading } = useAuth();
   const useDb = isSupabaseConfigured && authRequired;
   const userId = session?.user.id;
 
@@ -330,15 +330,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    if (!authRequired || !authProfile) return;
+    if (!authRequired || !authProfile || !userId) return;
     setUserProfile((prev) => {
-      const next: AppUser = {
-        id: authProfile.id,
-        name: authProfile.name,
-        avatar: authProfile.avatar,
-        bio: authProfile.bio,
-        instagram: authProfile.instagram,
-      };
+      const activeTeam = customTeams.find((team) => team.id === activeTeamId);
+      const member = activeTeam ? findCurrentMember(activeTeam, prev) : undefined;
+      const next = mergeDisplayProfile(userId, authProfile, member, prev);
       if (
         prev.id === next.id &&
         prev.name === next.name &&
@@ -350,7 +346,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-  }, [authProfile, authRequired]);
+  }, [authProfile, authRequired, userId, customTeams, activeTeamId]);
 
   const applyBootstrapData = useCallback((data: BootstrapData) => {
     setCustomTeams(data.teams);
@@ -396,7 +392,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [applyBootstrapData, useDb, userId]);
 
   useEffect(() => {
-    if (!useDb || !userId) {
+    if (!useDb) {
+      setDataReady(true);
+      return;
+    }
+    if (authLoading) return;
+    if (!userId) {
       setDataReady(true);
       return;
     }
@@ -431,7 +432,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [applyBootstrapData, useDb, userId]);
+  }, [applyBootstrapData, useDb, userId, authLoading]);
 
   useEffect(() => {
     if (!useDb || !dataReady || !userId) return;
@@ -1803,7 +1804,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     teamId: string,
     patch: { cover?: string; bio?: string; genre?: string; instagram?: string },
   ) => {
-    if (!canManageTeam(teamId)) return;
+    if (!canManageTeam(teamId)) {
+      throw new Error('권한이 없어요.');
+    }
     const normalizedPatch = {
       ...patch,
       bio: patch.bio !== undefined ? normalizeTeamBio(patch.bio) : undefined,
@@ -1832,8 +1835,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     await updateTeamProfileInDb(teamId, normalizedPatch);
-    const team = await fetchTeamById(teamId);
-    if (team) mergeTeam(team);
+    try {
+      const team = await fetchTeamById(teamId);
+      if (team) mergeTeam(team);
+    } catch (err) {
+      console.warn('[BandCrew] team refresh after profile update failed', err);
+    }
   };
 
   const updateUserProfile = async (patch: {
