@@ -9,6 +9,7 @@ import {
 } from '../lib/supabaseMappers';
 import { isInviteCodeActive } from '../utils/inviteUtils';
 import { createRandomInviteCode } from '../utils/inviteUtils';
+import { INSTAGRAM_COLUMN_MISSING_MESSAGE, isMissingInstagramColumnError } from '../utils/dbErrors';
 
 const DEFAULT_COVER = '';
 const TEAM_NAME_TAKEN_MESSAGE = '이미 사용 중인 팀 이름이에요.';
@@ -464,13 +465,13 @@ export async function updateTeamProfileInDb(
   if (Object.keys(updates).length === 0) return;
 
   const { error } = await supabase.from(DB_TABLES.teams).update(updates).eq('id', teamId);
-  if (error && updates.instagram !== undefined && /instagram|column.*does not exist/i.test(error.message)) {
+  if (error && updates.instagram !== undefined && isMissingInstagramColumnError(error.message)) {
     const { instagram: _ignored, ...rest } = updates;
     if (Object.keys(rest).length > 0) {
       const { error: retryError } = await supabase.from(DB_TABLES.teams).update(rest).eq('id', teamId);
       if (retryError) throw new Error(formatTeamMutationError(retryError, '팀 프로필 저장에 실패했어요.'));
     }
-    return;
+    throw new Error(INSTAGRAM_COLUMN_MISSING_MESSAGE);
   }
   if (error) throw new Error(formatTeamMutationError(error, '팀 프로필 저장에 실패했어요.'));
 }
@@ -520,18 +521,19 @@ export async function syncMemberProfileInDb(
     .eq('team_id', teamId)
     .eq('user_id', userId);
 
-  if (error && updates.instagram !== undefined && /instagram|column.*does not exist/i.test(error.message)) {
+  if (error && updates.instagram !== undefined && isMissingInstagramColumnError(error.message)) {
     const { instagram: _ignored, ...rest } = updates;
-    if (Object.keys(rest).length === 0) return;
-    const { error: retryError } = await supabase
-      .from(DB_TABLES.teamMembers)
-      .update(rest)
-      .eq('team_id', teamId)
-      .eq('user_id', userId);
-    if (retryError) {
-      throw new Error(formatTeamMutationError(retryError, '멤버 프로필 저장에 실패했어요.'));
+    if (Object.keys(rest).length > 0) {
+      const { error: retryError } = await supabase
+        .from(DB_TABLES.teamMembers)
+        .update(rest)
+        .eq('team_id', teamId)
+        .eq('user_id', userId);
+      if (retryError) {
+        throw new Error(formatTeamMutationError(retryError, '멤버 프로필 저장에 실패했어요.'));
+      }
     }
-    return;
+    throw new Error(INSTAGRAM_COLUMN_MISSING_MESSAGE);
   }
 
   if (error) throw new Error(formatTeamMutationError(error, '멤버 프로필 저장에 실패했어요.'));

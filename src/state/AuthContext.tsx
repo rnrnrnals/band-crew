@@ -11,6 +11,7 @@ import type { Session, User } from '@supabase/supabase-js';
 import type { AppUser } from '../types';
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
 import { DB_TABLES } from '../lib/databaseTables';
+import { INSTAGRAM_COLUMN_MISSING_MESSAGE, isMissingInstagramColumnError } from '../utils/dbErrors';
 
 interface DbProfile {
   display_name: string;
@@ -227,20 +228,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ? { ...baseRow, instagram: updates.instagram }
             : baseRow;
         const { error: insertError } = await supabase.from(DB_TABLES.profiles).insert(withInstagram);
-        if (insertError && updates.instagram !== undefined && /instagram|column.*does not exist/i.test(insertError.message)) {
+        if (
+          insertError &&
+          updates.instagram !== undefined &&
+          isMissingInstagramColumnError(insertError.message)
+        ) {
           const { error: retryError } = await supabase.from(DB_TABLES.profiles).insert(baseRow);
           if (retryError) throw new Error(retryError.message);
+          throw new Error(INSTAGRAM_COLUMN_MISSING_MESSAGE);
         } else if (insertError) {
           throw new Error(insertError.message);
         }
       } else {
         const { error } = await supabase.from(DB_TABLES.profiles).update(updates).eq('id', userId);
-        if (error && updates.instagram !== undefined && /instagram|column.*does not exist/i.test(error.message)) {
+        if (
+          error &&
+          updates.instagram !== undefined &&
+          isMissingInstagramColumnError(error.message)
+        ) {
           const { instagram: _ignored, ...rest } = updates;
           if (Object.keys(rest).length > 0) {
             const { error: retryError } = await supabase.from(DB_TABLES.profiles).update(rest).eq('id', userId);
             if (retryError) throw new Error(retryError.message);
           }
+          throw new Error(INSTAGRAM_COLUMN_MISSING_MESSAGE);
         } else if (error) {
           throw new Error(error.message);
         }

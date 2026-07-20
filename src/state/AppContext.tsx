@@ -569,8 +569,52 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return findCurrentMember(activeTeam, userProfile)?.nick ?? userProfile.name;
   };
 
-  const mergeTeam = (team: BandTeam) => {
-    setCustomTeams((prev) => [...prev.filter((t) => t.id !== team.id), team]);
+  const mergeTeam = (team: BandTeam, localOverlay?: Partial<BandTeam>) => {
+    setCustomTeams((prev) => {
+      const existing = prev.find((t) => t.id === team.id);
+      const pickText = (...values: (string | undefined)[]) => {
+        for (const value of values) {
+          const trimmed = value?.trim();
+          if (trimmed) return trimmed;
+        }
+        return '';
+      };
+      const pickInstagram = (...values: (string | undefined)[]) => {
+        for (const value of values) {
+          if (value === undefined) continue;
+          const trimmed = value.trim();
+          return trimmed || undefined;
+        }
+        return undefined;
+      };
+
+      const mergedMembers = team.members.map((member) => {
+        const prevMember = existing?.members.find(
+          (m) => (member.userId && m.userId === member.userId) || m.id === member.id,
+        );
+        const overlayMember = localOverlay?.members?.find(
+          (m) => (member.userId && m.userId === member.userId) || m.id === member.id,
+        );
+        return {
+          ...member,
+          nick: pickText(overlayMember?.nick, member.nick, prevMember?.nick) || member.nick,
+          avatar: pickText(overlayMember?.avatar, member.avatar, prevMember?.avatar) || member.avatar,
+          bio: overlayMember?.bio ?? member.bio ?? prevMember?.bio,
+          instagram: pickInstagram(overlayMember?.instagram, member.instagram, prevMember?.instagram),
+        };
+      });
+
+      const merged: BandTeam = {
+        ...team,
+        cover: pickText(team.cover, localOverlay?.cover, existing?.cover) || team.cover,
+        bio: team.bio || localOverlay?.bio || existing?.bio || team.bio,
+        genre: pickText(team.genre, localOverlay?.genre, existing?.genre) || team.genre,
+        instagram: pickInstagram(team.instagram, localOverlay?.instagram, existing?.instagram),
+        members: mergedMembers,
+      };
+
+      return [...prev.filter((t) => t.id !== team.id), merged];
+    });
   };
 
   const loadTeam = useCallback(
@@ -1837,7 +1881,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await updateTeamProfileInDb(teamId, normalizedPatch);
     try {
       const team = await fetchTeamById(teamId);
-      if (team) mergeTeam(team);
+      if (team) {
+        mergeTeam(team, {
+          cover: normalizedPatch.cover,
+          bio: normalizedPatch.bio,
+          genre: normalizedPatch.genre,
+          instagram:
+            normalizedPatch.instagram !== undefined ? normalizedPatch.instagram || undefined : undefined,
+        });
+      }
     } catch (err) {
       console.warn('[BandCrew] team refresh after profile update failed', err);
     }
@@ -1894,7 +1946,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         try {
           const team = await fetchTeamById(activeTeamId);
-          if (team) mergeTeam(team);
+          if (team) {
+            mergeTeam(team, {
+              members: team.members.map((member) =>
+                isCurrentMember(member, nextUser)
+                  ? {
+                      ...member,
+                      nick: nextUser.name,
+                      avatar: nextUser.avatar,
+                      bio: nextUser.bio,
+                      instagram: nextUser.instagram,
+                    }
+                  : member,
+              ),
+            });
+          }
         } catch (err) {
           console.warn('[BandCrew] team refresh after user profile update failed', err);
         }
