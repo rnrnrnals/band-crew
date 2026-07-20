@@ -48,12 +48,19 @@
   background: var(--story-ring-seen);
 }
 
+.story-ring-avatar,
 .story-ring img {
   width: 100%;
   height: 100%;
   border-radius: 50%;
   object-fit: cover;
   border: 3px solid var(--bg-deep);
+  display: block;
+}
+
+.story-ring-avatar.profile-avatar-empty {
+  border-color: var(--hairline);
+  background: var(--surface-raised);
 }
 
 .story-count {

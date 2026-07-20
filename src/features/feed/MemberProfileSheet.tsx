@@ -5,10 +5,10 @@ import {
   getMemberAvatar,
   getMemberBio,
   getMemberInstagram,
-  getMemberRoleLabel,
 } from '../../mock/memberUtils';
 import { useApp } from '../../state/AppContext';
 import { ProfilePhotoLightbox } from '../../components/ProfilePhotoLightbox';
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import { InstagramProfileLink } from './InstagramProfileLink';
 import './FollowListSheet.css';
 import './MemberProfileSheet.css';
@@ -40,7 +40,6 @@ export function MemberProfileSheet({
 
   const bio = getMemberBio(member, user);
   const instagram = getMemberInstagram(member, user);
-  const roleLabel = getMemberRoleLabel(member);
   const canManageRoles = isActiveTeamLeader && !isSelf && !member.isLeader;
   const currentCoLeader = team.members.find((m) => m.isCoLeader);
 
@@ -106,10 +105,13 @@ export function MemberProfileSheet({
           <button
             type="button"
             className="member-profile-avatar-btn"
-            onClick={() => setPhotoOpen(true)}
+            onClick={() => {
+              if (avatarUrl) setPhotoOpen(true);
+            }}
             aria-label={`${member.nick} 프로필 사진 크게 보기`}
+            disabled={!avatarUrl}
           >
-            <img src={avatarUrl} alt="" className="member-profile-avatar" />
+            <ProfileAvatar src={avatarUrl} className="member-profile-avatar" />
           </button>
           <strong
             className={
@@ -122,7 +124,6 @@ export function MemberProfileSheet({
           >
             {member.nick}
           </strong>
-          {roleLabel ? <span className="member-profile-role">{roleLabel}</span> : null}
           <span className="member-profile-position">{POSITION_LABELS[member.position]}</span>
           <span className="member-profile-team">{team.name}</span>
           {instagram ? <InstagramProfileLink username={instagram} /> : null}

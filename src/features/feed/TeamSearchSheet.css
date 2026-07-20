@@ -104,12 +104,14 @@
   color: inherit;
 }
 
+.team-search-avatar,
 .team-search-item img {
   width: 44px;
   height: 44px;
   border-radius: 10px;
   object-fit: cover;
   flex-shrink: 0;
+  border: 1px solid var(--hairline);
 }
 
 .team-search-item strong {

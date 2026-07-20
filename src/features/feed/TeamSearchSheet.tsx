@@ -8,6 +8,7 @@ import {
   useTeamSearchHistory,
   type TeamSearchHistoryEntry,
 } from '../../utils/teamSearchHistoryStorage';
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import './TeamSearchSheet.css';
 
 interface TeamSearchSheetProps {
@@ -70,7 +71,7 @@ export function TeamSearchSheet({ onClose }: TeamSearchSheetProps) {
 
   const renderTeamRow = (team: Pick<BandTeam, 'id' | 'name' | 'cover' | 'genre'>) => (
     <button type="button" className="team-search-item" onClick={() => openTeam(team)}>
-      <img src={team.cover} alt="" />
+      <ProfileAvatar src={team.cover} square className="team-search-avatar" />
       <div>
         <strong>{team.name}</strong>
         <span>

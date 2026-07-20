@@ -10,8 +10,66 @@ import {
 import { isInviteCodeActive } from '../utils/inviteUtils';
 import { createRandomInviteCode } from '../utils/inviteUtils';
 
-const DEFAULT_COVER =
-  'https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800&h=500&fit=crop';
+const DEFAULT_COVER = '';
+
+function formatTeamMutationError(err: unknown, fallback: string): string {
+  const message =
+    err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+      ? err.message
+      : err instanceof Error
+        ? err.message
+        : fallback;
+
+  if (/profiles.*foreign key|team_members_user_id_fkey/i.test(message)) {
+    return '프로필이 아직 준비되지 않았어요. 잠시 후 다시 시도해 주세요.';
+  }
+  if (/team_members_team_id_nick_key|duplicate key.*nick/i.test(message)) {
+    return '이 팀에서 이미 사용 중인 닉네임이에요.';
+  }
+  if (/row-level security|permission denied|42501/i.test(message)) {
+    return '권한이 없어요. 다시 로그인한 뒤 시도해 주세요.';
+  }
+  if (/column .* does not exist/i.test(message)) {
+    return 'DB 마이그레이션이 아직 적용되지 않았어요. Supabase SQL을 실행해 주세요.';
+  }
+
+  return message || fallback;
+}
+
+function isMissingRpcFunction(err: unknown): boolean {
+  const message =
+    err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+      ? err.message
+      : '';
+  const code =
+    err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' ? err.code : '';
+  return (
+    code === 'PGRST202' ||
+    /Could not find the function/i.test(message) ||
+    /function .* does not exist/i.test(message)
+  );
+}
+
+async function ensureUserProfileInDb(userId: string, user: AppUser): Promise<void> {
+  const supabase = requireSupabase();
+  const { data, error: readError } = await supabase
+    .from(DB_TABLES.profiles)
+    .select('id')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (readError) throw readError;
+  if (data) return;
+
+  const { error: insertError } = await supabase.from(DB_TABLES.profiles).insert({
+    id: userId,
+    display_name: user.name.trim() || 'User',
+    avatar_url: user.avatar ?? '',
+    bio: user.bio ?? '',
+  });
+
+  if (insertError) throw insertError;
+}
 
 async function fetchMembersForTeams(teamIds: string[]): Promise<Map<string, DbTeamMember[]>> {
   if (teamIds.length === 0) return new Map();
@@ -101,7 +159,7 @@ export async function fetchMyTeams(userId: string): Promise<{
   return { teams, myTeamIds, activeTeamId };
 }
 
-export async function createTeamInDb(
+async function createTeamInDbDirect(
   userId: string,
   user: AppUser,
   name: string,
@@ -110,6 +168,8 @@ export async function createTeamInDb(
   position: PositionId,
 ): Promise<BandTeam> {
   const supabase = requireSupabase();
+
+  await ensureUserProfileInDb(userId, user);
 
   const { data: teamRow, error: teamError } = await supabase
     .from(DB_TABLES.teams)
@@ -122,7 +182,9 @@ export async function createTeamInDb(
     .select('*')
     .single();
 
-  if (teamError || !teamRow) throw teamError ?? new Error('팀 생성 실패');
+  if (teamError || !teamRow) {
+    throw new Error(formatTeamMutationError(teamError, '팀 생성에 실패했어요.'));
+  }
 
   const { data: memberRow, error: memberError } = await supabase
     .from(DB_TABLES.teamMembers)
@@ -133,22 +195,58 @@ export async function createTeamInDb(
       position,
       avatar_url: user.avatar,
       bio: user.bio ?? '',
-      instagram: user.instagram ?? '',
       is_leader: true,
     })
     .select('*')
     .single();
 
-  if (memberError || !memberRow) throw memberError ?? new Error('멤버 등록 실패');
+  if (memberError || !memberRow) {
+    await supabase.from(DB_TABLES.teams).delete().eq('id', teamRow.id);
+    throw new Error(formatTeamMutationError(memberError, '멤버 등록에 실패했어요.'));
+  }
 
   const { error: profileError } = await supabase
     .from(DB_TABLES.profiles)
     .update({ active_team_id: teamRow.id })
     .eq('id', userId);
 
-  if (profileError) throw profileError;
+  if (profileError) {
+    throw new Error(formatTeamMutationError(profileError, '활성 팀 설정에 실패했어요.'));
+  }
 
   return mapTeam(teamRow as DbTeam, [memberRow as DbTeamMember]);
+}
+
+export async function createTeamInDb(
+  userId: string,
+  user: AppUser,
+  name: string,
+  genre: string,
+  nick: string,
+  position: PositionId,
+): Promise<BandTeam> {
+  const supabase = requireSupabase();
+
+  const { data: teamId, error: rpcError } = await supabase.rpc('create_team_with_leader', {
+    p_name: name.trim(),
+    p_genre: genre.trim() || '장르 미정',
+    p_nick: nick.trim(),
+    p_position: position,
+    p_avatar_url: user.avatar ?? '',
+    p_bio: user.bio ?? '',
+  });
+
+  if (!rpcError && typeof teamId === 'string' && teamId) {
+    const team = await fetchTeamById(teamId);
+    if (team) return team;
+    throw new Error('팀을 만들었지만 불러오지 못했어요.');
+  }
+
+  if (rpcError && !isMissingRpcFunction(rpcError)) {
+    throw new Error(formatTeamMutationError(rpcError, '팀 생성에 실패했어요.'));
+  }
+
+  return createTeamInDbDirect(userId, user, name, genre, nick, position);
 }
 
 export async function joinTeamInDb(
@@ -202,6 +300,12 @@ export async function joinTeamInDb(
     .maybeSingle();
 
   if (!existing) {
+    try {
+      await ensureUserProfileInDb(userId, user);
+    } catch (err) {
+      return { ok: false, message: formatTeamMutationError(err, '프로필 준비에 실패했어요.') };
+    }
+
     const { error: joinError } = await supabase.from(DB_TABLES.teamMembers).insert({
       team_id: teamRow.id,
       user_id: userId,
@@ -209,10 +313,11 @@ export async function joinTeamInDb(
       position,
       avatar_url: user.avatar,
       bio: user.bio ?? '',
-      instagram: user.instagram ?? '',
       is_leader: false,
     });
-    if (joinError) return { ok: false, message: joinError.message };
+    if (joinError) {
+      return { ok: false, message: formatTeamMutationError(joinError, '가입에 실패했어요.') };
+    }
   }
 
   const { error: profileError } = await supabase

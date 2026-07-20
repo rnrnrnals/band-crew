@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { Post } from '../../types';
 import { useApp } from '../../state/AppContext';
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import { CommentSheet } from './CommentSheet';
 import { CommentAuthor } from './CommentAuthor';
 import { FeedShareButton } from '../chat/ShareContentSheet';
@@ -87,7 +88,7 @@ export function FeedCard({
     <article className="feed-card" onDoubleClick={handleDoubleClick}>
       <header className="feed-head">
         <Link to={`/team/${team.id}`} className="feed-team">
-          <img src={team.cover} alt="" />
+          <ProfileAvatar src={team.cover} className="feed-team-avatar" />
           <div>
             <strong>{team.name}</strong>
             <span>{team.genre}</span>

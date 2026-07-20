@@ -5,6 +5,7 @@ import { useApp } from '../state/AppContext';
 import { isLikelyImageFile } from '../utils/prepareProfileImageFile';
 import { ensurePublishedImageUrl } from '../utils/mediaUpload';
 import { normalizeInstagramUsername } from '../utils/teamInstagram';
+import { ProfileAvatar } from '../components/ProfileAvatar';
 import './MyPage.css';
 import './ProfileEditPage.css';
 
@@ -65,7 +66,7 @@ export function UserProfileEditPage() {
       </p>
 
       <div className="profile-edit-avatar">
-        <img src={avatar} alt="" />
+        <ProfileAvatar src={avatar} className="profile-edit-avatar-img" />
         <button type="button" className="btn" onClick={() => fileInputRef.current?.click()}>
           프로필 사진 변경
         </button>

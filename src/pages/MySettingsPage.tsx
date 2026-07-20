@@ -8,7 +8,9 @@ import type { TeamMember } from '../types';
 
 import { POSITION_LABELS } from '../mock/positions';
 
-import { findCurrentMember, getMemberAvatar, getMemberRoleLabel, sortMembersWithLeaderFirst } from '../mock/memberUtils';
+import { findCurrentMember, getMemberAvatar, sortMembersWithLeaderFirst } from '../mock/memberUtils';
+
+import { ProfileAvatar } from '../components/ProfileAvatar';
 
 import { MemberProfileSheet } from '../features/feed/MemberProfileSheet';
 
@@ -189,7 +191,7 @@ export function MySettingsPage() {
 
       <Link to="/my/user-profile" className="me-card card me-card-link">
 
-        <img src={user.avatar} alt="" />
+        <ProfileAvatar src={user.avatar} className="me-card-avatar" />
 
         <div>
 
@@ -231,7 +233,6 @@ export function MySettingsPage() {
 
               const isMe = currentMember?.id === m.id;
               const roleClass = m.isLeader ? ' chip-leader' : m.isCoLeader ? ' chip-coleader' : '';
-              const roleSuffix = getMemberRoleLabel(m);
 
               return (
 
@@ -247,11 +248,11 @@ export function MySettingsPage() {
 
                 >
 
-                  <img src={getMemberAvatar(m)} alt="" className="member-chip-avatar" />
+                  <ProfileAvatar src={getMemberAvatar(m)} className="member-chip-avatar" />
 
-                  {m.nick} · {POSITION_LABELS[m.position]}
-
-                  {roleSuffix ? ` · ${roleSuffix}` : ''}
+                  <span className="chip-text">
+                    {m.nick} · {POSITION_LABELS[m.position]}
+                  </span>
 
                 </button>
 

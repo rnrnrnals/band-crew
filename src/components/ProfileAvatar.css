@@ -1,0 +1,33 @@
+.profile-avatar {
+  display: block;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  object-fit: cover;
+  object-position: center;
+}
+
+.profile-avatar-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-raised);
+  color: var(--text-faint);
+  overflow: hidden;
+}
+
+.profile-avatar-icon {
+  display: block;
+  width: 52%;
+  height: 52%;
+  opacity: 0.55;
+}
+
+.profile-avatar-square.profile-avatar-empty,
+.profile-avatar-square:not(.profile-avatar-empty) {
+  border-radius: 10px;
+}
+
+.profile-avatar:not(.profile-avatar-square).profile-avatar-empty,
+.profile-avatar:not(.profile-avatar-square):not(.profile-avatar-empty) {
+  border-radius: 50%;
+}

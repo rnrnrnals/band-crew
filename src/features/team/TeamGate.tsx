@@ -16,22 +16,36 @@ export function TeamGate() {
   const [nick, setNick] = useState(user.name.slice(0, 2) || '멤버');
   const [position, setPosition] = useState<PositionId>('elec');
   const [msg, setMsg] = useState('');
+  const [msgOk, setMsgOk] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const submit = async () => {
+    if (submitting) return;
     if (!nick.trim()) {
+      setMsgOk(false);
       setMsg('닉네임을 입력해주세요.');
       return;
     }
-    if (mode === 'create') {
-      if (!name.trim()) {
-        setMsg('팀 이름을 입력해주세요.');
+    setSubmitting(true);
+    setMsg('');
+    setMsgOk(false);
+    try {
+      if (mode === 'create') {
+        if (!name.trim()) {
+          setMsg('팀 이름을 입력해주세요.');
+          return;
+        }
+        const res = await createTeam(name.trim(), genre.trim() || '장르 미정', nick.trim(), position);
+        setMsgOk(res.ok);
+        setMsg(res.message);
         return;
       }
-      createTeam(name.trim(), genre.trim() || '장르 미정', nick.trim(), position);
-      return;
+      const res = await joinTeam(code, nick.trim(), position);
+      setMsgOk(res.ok);
+      setMsg(res.message);
+    } finally {
+      setSubmitting(false);
     }
-    const res = await joinTeam(code, nick.trim(), position);
-    setMsg(res.message);
   };
 
   return (
@@ -93,10 +107,15 @@ export function TeamGate() {
         </div>
       </div>
 
-      {msg && <p className="gate-msg">{msg}</p>}
+      {msg ? <p className={`gate-msg${msgOk ? ' is-ok' : ' is-error'}`}>{msg}</p> : null}
 
-      <button type="button" className="btn btn-primary gate-submit" onClick={submit}>
-        {mode === 'create' ? '팀 만들고 시작' : '가입하고 시작'}
+      <button
+        type="button"
+        className="btn btn-primary gate-submit"
+        onClick={submit}
+        disabled={submitting}
+      >
+        {submitting ? '처리 중…' : mode === 'create' ? '팀 만들고 시작' : '가입하고 시작'}
       </button>
     </div>
   );

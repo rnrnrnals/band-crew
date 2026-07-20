@@ -6,6 +6,7 @@ import { CommentAuthor } from './CommentAuthor';
 import { AudioCommentSheet } from './AudioCommentSheet';
 import { FeedShareButton } from '../chat/ShareContentSheet';
 import { buildSharedAudioContent } from '../../utils/contentShare';
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import './FeedCard.css';
 import './AudioFeedCard.css';
 
@@ -77,7 +78,7 @@ export function AudioFeedCard({
     <article className="feed-card audio-feed-card" onDoubleClick={handleDoubleClick}>
       <header className="feed-head">
         <Link to={`/team/${team.id}`} className="feed-team">
-          <img src={team.cover} alt="" />
+          <ProfileAvatar src={team.cover} className="feed-team-avatar" />
           <div>
             <strong>{team.name}</strong>
             <span>{team.genre}</span>

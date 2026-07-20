@@ -20,7 +20,8 @@
   opacity: 0.85;
 }
 
-.member-sheet-avatar {
+.member-sheet-avatar,
+.member-sheet-avatar.profile-avatar-empty {
   width: 48px;
   height: 48px;
   border-radius: 50%;
@@ -44,7 +45,7 @@
 }
 
 .member-sheet-row--coleader strong {
-  color: #7c6cff;
+  color: #4dabf7;
 }
 
 .member-sheet-row span {

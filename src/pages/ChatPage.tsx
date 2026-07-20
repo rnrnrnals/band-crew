@@ -10,6 +10,7 @@ import { ensurePublishedMedia } from '../utils/mediaUpload';
 import { VideoTrimSheet } from '../features/media/VideoTrimSheet';
 import { ChatShareCard } from '../features/chat/ChatShareCard';
 import { parseShareMessage } from '../utils/contentShare';
+import { ProfileAvatar } from '../components/ProfileAvatar';
 import './MyPage.css';
 import './ChatPage.css';
 
@@ -615,7 +616,7 @@ function ChatRoom({ peerTeamId, peerTeam }: ChatRoomProps) {
 
             return (
               <div key={m.id} className={`chat-row ${mine ? 'mine' : 'theirs'}`}>
-                {!mine && <img src={avatar} alt="" className="chat-avatar" />}
+                {!mine && <ProfileAvatar src={avatar} className="chat-avatar" />}
                 <div className="chat-bubble-wrap">
                   {!mine && (
                     <span className="chat-author">

@@ -47,9 +47,7 @@ function mapProfile(userId: string, row: DbProfile | null, fallbackEmail?: strin
   return {
     id: userId,
     name: row?.display_name?.trim() || fallbackEmail?.split('@')[0] || 'User',
-    avatar:
-      row?.avatar_url?.trim() ||
-      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&h=120&fit=crop',
+    avatar: row?.avatar_url?.trim() ?? '',
     bio: row?.bio?.trim() || undefined,
     instagram: row?.instagram?.trim() || undefined,
   };

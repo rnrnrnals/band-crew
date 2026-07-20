@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../../state/AppContext';
 import { isTeamStoriesFullySeen, useStorySeen } from '../../utils/storySeenStorage';
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import './StoryRail.css';
 
 export function StoryRail({ onOpen }: { onOpen: (storyId: string) => void }) {
@@ -97,7 +98,7 @@ export function StoryRail({ onOpen }: { onOpen: (storyId: string) => void }) {
             onClick={() => onOpen(firstStory.id)}
           >
             <div className={`story-ring${allSeen ? ' is-seen' : ''}`}>
-              <img src={team.cover} alt="" />
+              <ProfileAvatar src={team.cover} className="story-ring-avatar" />
               {count > 1 && <span className="story-count">{count}</span>}
             </div>
             <span>{team.name}</span>

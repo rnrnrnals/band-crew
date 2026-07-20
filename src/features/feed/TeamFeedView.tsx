@@ -15,6 +15,7 @@ import { StoryViewer } from './StoryViewer';
 import { TeamAudioPanel, type MixedFeedItem } from './TeamAudioPanel';
 import { SoundDetailSheet } from './SoundDetailSheet';
 import { TeamPracticeSheet } from './TeamPracticeSheet';
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import './TeamFeedView.css';
 
 type ListKind = 'followers' | 'following' | 'members';
@@ -213,7 +214,7 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
                 onClick={() => setStoryId(firstStory.id)}
                 aria-label={`${team.name} 스토리 보기`}
               >
-                <img src={team.cover} alt="" className="tf-avatar" />
+                <ProfileAvatar src={team.cover} className="tf-avatar" />
                 {teamStories.length > 1 && (
                   <span className="tf-story-count">{teamStories.length}</span>
                 )}
@@ -225,14 +226,14 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
           ) : canManage ? (
             <Link to="/story/upload" className="tf-avatar-mine-wrap tf-avatar-upload-link" aria-label="스토리 올리기">
               <div className="tf-avatar-wrap">
-                <img src={team.cover} alt="" className="tf-avatar" />
+                <ProfileAvatar src={team.cover} className="tf-avatar" />
               </div>
               <span className="tf-story-add-plus">+</span>
             </Link>
           ) : (
             <div className="tf-avatar-mine-wrap">
               <div className="tf-avatar-wrap">
-                <img src={team.cover} alt="" className="tf-avatar" />
+                <ProfileAvatar src={team.cover} className="tf-avatar" />
               </div>
             </div>
           )
@@ -243,11 +244,11 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
             onClick={() => setStoryId(firstStory.id)}
             aria-label={`${team.name} 스토리 보기`}
           >
-            <img src={team.cover} alt="" className="tf-avatar" />
+            <ProfileAvatar src={team.cover} className="tf-avatar" />
           </button>
         ) : (
           <div className="tf-avatar-wrap">
-            <img src={team.cover} alt="" className="tf-avatar" />
+            <ProfileAvatar src={team.cover} className="tf-avatar" />
           </div>
         )}
         <div className="tf-stats">

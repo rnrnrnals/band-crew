@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { BandTeam, TeamHighlight } from '../../types';
 import { useApp } from '../../state/AppContext';
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import './StoryViewer.css';
 
 interface HighlightViewerProps {
@@ -64,7 +65,7 @@ export function HighlightViewer({ highlight, team, canEdit, onClose, onEdit, onA
           ))}
         </div>
         <div className="story-head">
-          <img src={team.cover} alt="" />
+          <ProfileAvatar src={team.cover} className="story-viewer-avatar" />
           <div>
             <Link to={teamFeedPath} className="story-head-team" onClick={onClose}>
               {highlight.title}
