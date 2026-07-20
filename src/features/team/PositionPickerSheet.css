@@ -1,0 +1,22 @@
+.position-sheet-body {
+  padding: 12px 16px 8px;
+  overflow-y: auto;
+}
+
+.position-sheet-sub {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.position-sheet-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--hairline);
+}
+
+.position-sheet-actions .btn {
+  width: 100%;
+}

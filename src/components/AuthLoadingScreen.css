@@ -1,0 +1,15 @@
+.auth-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+}
+
+.auth-loading-inner {
+  text-align: center;
+}
+
+.auth-loading-inner p {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}

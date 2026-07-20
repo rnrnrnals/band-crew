@@ -1,0 +1,76 @@
+.sched-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.sched-head .page-title {
+  margin-bottom: 0;
+}
+
+.add-form {
+  margin-bottom: 16px;
+}
+
+.event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.event-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+}
+
+.event-card .kind {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--bg-deep);
+  color: var(--text-muted);
+}
+
+.event-card .kind.practice {
+  color: var(--amber);
+}
+
+.event-card .kind.gig {
+  color: var(--red);
+}
+
+.event-card div:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.event-card strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.event-place-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.event-place-link:active {
+  color: var(--brand);
+}
+
+.empty {
+  color: var(--text-faint);
+  text-align: center;
+  padding: 24px;
+}

@@ -1,0 +1,14 @@
+.comment-timestamp-link {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  color: #3ea6ff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.comment-timestamp-link:hover {
+  text-decoration: underline;
+}

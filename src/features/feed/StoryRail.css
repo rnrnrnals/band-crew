@@ -1,0 +1,142 @@
+.story-rail {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding: 4px 2px 16px;
+  margin: 0 -4px;
+  scrollbar-width: none;
+}
+
+.story-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.story-item {
+  flex: 0 0 auto;
+  width: 72px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.story-item span:last-child {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.story-ring {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  padding: 3px;
+  background: var(--story-ring);
+}
+
+.story-ring img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--bg-deep);
+}
+
+.story-count {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-deep);
+}
+
+.story-ring.add {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-raised);
+  border: 2px dashed var(--hairline-strong);
+  color: var(--brand);
+  padding: 0;
+  overflow: visible;
+}
+
+.story-add-cover {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--bg-deep);
+}
+
+.story-add-plus {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--bg-deep);
+  line-height: 1;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.story-add-fallback {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.story-mine {
+  text-decoration: none;
+}
+
+.story-mine-wrap {
+  position: relative;
+  width: 62px;
+  height: 62px;
+}
+
+.story-mine-ring {
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 3px;
+  cursor: pointer;
+}
+
+.story-mine-wrap .story-add-plus {
+  z-index: 1;
+}
+
+.story-add .story-ring.add {
+  width: 62px;
+  height: 62px;
+}

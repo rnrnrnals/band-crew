@@ -1,0 +1,79 @@
+.highlight-rail-wrap {
+  margin: 0 -16px 14px;
+  padding: 0 16px;
+}
+
+.highlight-rail {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.highlight-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.highlight-chip {
+  flex: 0 0 auto;
+  width: 68px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.highlight-chip:active {
+  opacity: 0.85;
+}
+
+.highlight-ring {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  padding: 2px;
+  background: var(--hairline-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.highlight-ring img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--bg-deep);
+}
+
+.highlight-ring-new {
+  background: var(--surface);
+  border: 1px dashed var(--hairline-strong);
+}
+
+.highlight-plus {
+  font-size: 24px;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.highlight-name {
+  width: 100%;
+  font-size: 11px;
+  text-align: center;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.highlight-chip-new .highlight-name {
+  color: var(--text);
+}

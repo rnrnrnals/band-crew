@@ -1,0 +1,123 @@
+.square-crop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  background: rgba(0, 0, 0, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.square-crop-sheet {
+  width: min(100%, 420px);
+  max-height: 92vh;
+  overflow: auto;
+  background: var(--bg-deep);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.square-crop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.square-crop-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.square-crop-close {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.square-crop-sub {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.square-crop-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #111;
+  touch-action: none;
+  cursor: grab;
+}
+
+.square-crop-viewport.dragging {
+  cursor: grabbing;
+}
+
+.square-crop-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  user-select: none;
+  pointer-events: none;
+}
+
+.square-crop-image.is-loading {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform: none;
+  opacity: 0.55;
+}
+
+.square-crop-image.is-ready {
+  max-width: none;
+  max-height: none;
+}
+
+.square-crop-frame {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: inset 0 0 0 9999px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+.square-crop-zoom {
+  margin-top: 12px;
+}
+
+.square-crop-zoom label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.square-crop-zoom input[type='range'] {
+  width: 100%;
+}
+
+.square-crop-error {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--red);
+}
+
+.square-crop-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.square-crop-actions .btn {
+  flex: 1;
+}

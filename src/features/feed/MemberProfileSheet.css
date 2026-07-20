@@ -1,0 +1,71 @@
+.member-profile-sheet .follow-sheet-head {
+  justify-content: center;
+}
+
+.member-profile-back {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.member-profile-back:active {
+  opacity: 0.85;
+}
+
+.member-profile-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 28px 24px 36px;
+  gap: 6px;
+}
+
+.member-profile-avatar {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--hairline);
+  margin-bottom: 8px;
+}
+
+.member-profile-body strong {
+  font-size: 18px;
+  color: var(--text);
+}
+
+.member-profile-name--leader {
+  color: var(--brand);
+}
+
+.member-profile-position {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.member-profile-team {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.member-profile-bio {
+  margin: 10px 0 0;
+  max-width: 320px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.member-profile-bio--empty {
+  color: var(--text-faint);
+}

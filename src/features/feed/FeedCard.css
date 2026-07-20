@@ -1,0 +1,216 @@
+.feed-card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow);
+}
+
+.feed-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px 10px;
+}
+
+.feed-team {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.feed-follow-btn {
+  flex-shrink: 0;
+  border: 1px solid var(--brand);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  background: transparent;
+  color: var(--brand);
+}
+
+.feed-follow-btn.is-following {
+  border-color: var(--hairline-strong);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+}
+
+.feed-follow-btn:active {
+  opacity: 0.75;
+}
+
+.feed-team img {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--hairline);
+}
+
+.feed-team div {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.feed-team strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.feed-media {
+  position: relative;
+  background: #000;
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.feed-media video,
+.feed-media img {
+  width: 100%;
+  max-width: none;
+  height: auto;
+  max-height: 520px;
+  object-fit: contain;
+  object-position: center;
+}
+
+.media-badge {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: #fff;
+}
+
+.feed-text-only {
+  position: relative;
+  padding: 20px 16px;
+  background: linear-gradient(160deg, var(--brand-soft), var(--surface));
+  min-height: 120px;
+}
+
+.feed-text-only p {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.feed-actions {
+  display: flex;
+  gap: 14px;
+  padding: 10px 14px 4px;
+  font-size: 14px;
+}
+
+.feed-actions button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  color: var(--text);
+}
+
+.feed-actions button.liked {
+  color: var(--red);
+}
+
+.feed-comment-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.feed-more-comments {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 2px 14px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.feed-caption,
+.feed-comment {
+  margin: 0;
+  padding: 2px 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.feed-caption {
+  padding-bottom: 4px;
+  color: var(--text);
+}
+
+.feed-comment:last-child {
+  padding-bottom: 12px;
+}
+
+.feed-caption strong,
+.feed-comment strong {
+  color: var(--text);
+  margin-right: 6px;
+}
+
+.feed-heart-burst {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  font-size: 88px;
+  color: #fff;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 2;
+  animation: feed-heart-pop 0.9s ease forwards;
+}
+
+@keyframes feed-heart-pop {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+  }
+
+  15% {
+    transform: translate(-50%, -50%) scale(1.15);
+    opacity: 1;
+  }
+
+  30% {
+    transform: translate(-50%, -50%) scale(0.95);
+    opacity: 1;
+  }
+
+  50% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0;
+  }
+}

@@ -1,0 +1,83 @@
+.gate-brand {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  margin: 24px 0 12px;
+  color: var(--brand);
+}
+
+.gate-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: var(--surface-raised);
+  border-radius: 12px;
+  border: 1px solid var(--hairline);
+}
+
+.gate-tabs button {
+  border: none;
+  background: transparent;
+  padding: 10px;
+  border-radius: 9px;
+  color: var(--text-muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gate-tabs button.on {
+  background: var(--bg-deep);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--amber-dim);
+}
+
+.pos-pick {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.pos-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  background: var(--bg-deep);
+  border: 1.5px solid var(--hairline);
+  border-radius: 12px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.pos-item.selected {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.pos-art {
+  width: 36px;
+  height: 36px;
+}
+
+.pos-art svg {
+  width: 100%;
+  height: 100%;
+}
+
+.gate-msg {
+  color: var(--amber);
+  font-size: 13px;
+}
+
+.gate-submit {
+  width: 100%;
+  margin-top: 8px;
+}

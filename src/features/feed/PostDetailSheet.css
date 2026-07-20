@@ -1,0 +1,70 @@
+.post-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+}
+
+.post-detail-panel {
+  width: 100%;
+  max-width: 480px;
+  max-height: 92vh;
+  background: var(--bg-deep);
+  border-radius: 16px 16px 0 0;
+  display: flex;
+  flex-direction: column;
+  animation: post-detail-up 0.22s ease-out;
+}
+
+@keyframes post-detail-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.post-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px 0;
+  flex-shrink: 0;
+}
+
+.post-detail-delete {
+  border: none;
+  background: transparent;
+  color: var(--red);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 4px;
+}
+
+.post-detail-close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.post-detail-body {
+  overflow-y: auto;
+  padding: 0 0 calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.post-detail-body .feed-card {
+  margin-bottom: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}

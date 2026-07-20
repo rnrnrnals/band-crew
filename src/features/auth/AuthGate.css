@@ -1,0 +1,16 @@
+.auth-gate {
+  max-width: 420px;
+  margin: 0 auto;
+  padding-bottom: 32px;
+}
+
+.auth-gate-msg {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--red);
+}
+
+.auth-gate-msg.is-ok {
+  color: var(--text-muted);
+}

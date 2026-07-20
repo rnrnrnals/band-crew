@@ -1,0 +1,178 @@
+.video-trim-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.video-trim-sheet {
+  width: 100%;
+  max-width: 480px;
+  max-height: 92vh;
+  overflow-y: auto;
+  background: var(--bg-deep);
+  border-radius: 16px 16px 0 0;
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.video-trim-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 16px 0 8px;
+}
+
+.video-trim-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.video-trim-close {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.video-trim-sub {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.video-trim-preview {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  margin-bottom: 12px;
+}
+
+.video-trim-preview video {
+  width: 100%;
+  max-height: 220px;
+  display: block;
+  background: #000;
+}
+
+.video-trim-range-label {
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.video-trim-timeline {
+  margin-bottom: 14px;
+}
+
+.video-trim-track {
+  position: relative;
+  height: 56px;
+  border-radius: 12px;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+.video-trim-track-base {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, #4a4a4a 0%, #353535 100%);
+  opacity: 0.95;
+}
+
+.video-trim-track-base::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0,
+    rgba(255, 255, 255, 0.04) 1px,
+    transparent 1px,
+    transparent 12px
+  );
+}
+
+.video-trim-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  cursor: grab;
+  touch-action: none;
+}
+
+.video-trim-window.dragging {
+  cursor: grabbing;
+}
+
+.video-trim-window:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.video-trim-window-inner {
+  position: absolute;
+  inset: 4px;
+  border-radius: 8px;
+  border: 2px solid var(--brand);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.08) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 4px 16px rgba(0, 0, 0, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-trim-window-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.video-trim-track-times {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.video-trim-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.video-trim-error {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--red);
+}
+
+.video-trim-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.video-trim-actions .btn {
+  padding: 11px 12px;
+}

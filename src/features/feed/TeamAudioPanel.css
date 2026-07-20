@@ -1,0 +1,635 @@
+.tf-audio-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.tf-audio-upload {
+  padding: 14px;
+}
+
+.tf-audio-upload-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.tf-audio-upload-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #ff5500, #ff7733);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.tf-audio-upload-head strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.tf-audio-upload-head p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.tf-audio-file {
+  display: none;
+}
+
+.tf-audio-upload-btn {
+  flex: 1.2;
+}
+
+.tf-audio-pick-btn {
+  flex: 1;
+}
+
+.tf-audio-upload-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.tf-audio-pending {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+}
+
+.tf-audio-pending-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.tf-audio-pending-clear {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tf-audio-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--red);
+}
+
+.tf-audio-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 10px;
+}
+
+.tf-audio-panel-embedded .tf-audio-list {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+.tf-audio-track {
+  padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #1f1f1f;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: var(--shadow);
+}
+
+.tf-audio-track:not(.tf-audio-track-lg) {
+  aspect-ratio: 1;
+}
+
+.tf-audio-track-grid {
+  aspect-ratio: 1;
+  height: 100%;
+}
+
+.tf-audio-track:not(.tf-audio-track-lg) .tf-audio-art,
+.tf-audio-track-grid .tf-audio-art {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.tf-audio-track.is-active {
+  border-color: rgba(255, 111, 15, 0.35);
+}
+
+.tf-audio-track.is-playing {
+  border-color: rgba(255, 111, 15, 0.45);
+  box-shadow: 0 4px 20px rgba(255, 85, 0, 0.15);
+}
+
+.tf-audio-art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: linear-gradient(145deg, #1f1f1f, #2a2a2a);
+}
+
+.tf-audio-art-body {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.tf-audio-art-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 10px 0;
+  flex-shrink: 0;
+}
+
+.tf-audio-art-text {
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 4px 12px 6px;
+  overflow: hidden;
+}
+
+.tf-audio-art-text strong {
+  font-size: 14px;
+  color: #fff;
+  line-height: 1.35;
+  display: block;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+  word-break: break-word;
+}
+
+.tf-audio-duration {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.72);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+  flex-shrink: 0;
+}
+
+.tf-audio-art-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.tf-audio-art-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.28) 0%,
+    rgba(0, 0, 0, 0.12) 34%,
+    rgba(0, 0, 0, 0.52) 58%,
+    rgba(0, 0, 0, 0.88) 100%
+  );
+  pointer-events: none;
+}
+
+.tf-audio-art.has-cover .tf-audio-art-shade {
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.38) 0%,
+    rgba(0, 0, 0, 0.1) 36%,
+    rgba(0, 0, 0, 0.08) 62%,
+    rgba(0, 0, 0, 0.16) 100%
+  );
+}
+
+.tf-audio-art-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tf-audio-track-lg .tf-audio-art-text strong {
+  font-size: 16px;
+}
+
+.tf-audio-track-lg .tf-audio-art-text .tf-audio-caption {
+  font-size: 13px;
+}
+
+.tf-audio-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tf-audio-play {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: #ff5500;
+  color: #fff;
+  font-size: 12px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tf-audio-play:active {
+  opacity: 0.85;
+}
+
+.tf-audio-restart {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 11px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tf-audio-restart:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tf-audio-restart:not(:disabled):active {
+  opacity: 0.85;
+}
+
+.tf-audio-track-meta {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.tf-audio-track.is-clickable {
+  cursor: pointer;
+}
+
+.tf-audio-track.is-clickable:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.tf-audio-comment-count,
+.tf-audio-like-count {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.82);
+  flex-shrink: 0;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+
+.tf-audio-like-count {
+  color: rgba(255, 170, 190, 0.95);
+}
+
+.tf-audio-panel-embedded {
+  margin-bottom: 0;
+}
+
+.tf-audio-wave-wrap {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 0;
+  min-height: 88px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  margin: 0;
+  padding: 8px;
+  overflow: visible;
+  background: transparent;
+}
+
+.tf-audio-wave-wrap.has-markers {
+  min-height: 0;
+}
+
+.tf-audio-wave-wrap-lg {
+  min-height: 132px;
+  padding: 12px;
+}
+
+.tf-audio-wave-marker-layer {
+  position: relative;
+  width: 100%;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.tf-audio-wave-body {
+  position: relative;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.tf-audio-wave-tick-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.tf-wave-marker-group {
+  position: static;
+}
+
+.tf-wave-time-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #3ea6ff;
+  border-radius: 2px;
+  transform: translateX(-50%);
+  box-shadow: 0 0 8px rgba(62, 166, 255, 0.5);
+  pointer-events: none;
+}
+
+.tf-wave-comment-marker {
+  position: absolute;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  transform: translateX(-50%);
+  bottom: 0;
+}
+
+.tf-wave-comment-marker.is-open {
+  z-index: 100;
+}
+
+.tf-wave-marker-avatar {
+  display: block;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2.5px solid #3ea6ff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  background: var(--surface-raised);
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.tf-wave-comment-marker-lg .tf-wave-marker-avatar {
+  width: 44px;
+  height: 44px;
+  border-width: 3px;
+}
+
+.tf-wave-marker-avatar-fallback {
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  background: #3ea6ff;
+}
+
+.tf-wave-comment-marker:hover .tf-wave-marker-avatar,
+.tf-wave-comment-marker:focus-visible .tf-wave-marker-avatar,
+.tf-wave-comment-marker.is-open .tf-wave-marker-avatar {
+  border-color: #65b8ff;
+  transform: scale(1.06);
+}
+
+.tf-wave-marker-popover {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  min-width: 148px;
+  max-width: 210px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(18, 18, 22, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  text-align: left;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.tf-wave-marker-popover-team {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #fff;
+  margin-bottom: 2px;
+}
+
+.tf-wave-marker-popover-team-link {
+  display: block;
+  width: 100%;
+  margin: 0 0 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.tf-wave-marker-popover-team-link:hover,
+.tf-wave-marker-popover-team-link:focus-visible {
+  color: #fff;
+  text-decoration: underline;
+  outline: none;
+}
+
+.tf-wave-marker-popover-author {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 4px;
+}
+
+.tf-wave-marker-popover-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.78);
+  word-break: break-word;
+}
+
+.tf-audio-wave {
+  display: flex;
+  align-items: flex-end;
+  justify-content: stretch;
+  gap: 2px;
+  width: 100%;
+  height: 44px;
+  padding: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  touch-action: none;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+}
+
+.tf-audio-wave-lg {
+  height: 72px;
+  gap: 3px;
+  border-radius: 10px;
+}
+
+.tf-audio-wave:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.tf-audio-wave span {
+  flex: 1 1 0;
+  min-width: 2px;
+  max-width: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.22);
+  transition: background 0.08s linear;
+  pointer-events: none;
+}
+
+.tf-audio-wave.tf-audio-wave-lg > span {
+  flex: 1 1 0;
+  min-width: 2px;
+  max-width: none;
+}
+
+.tf-audio-wave span.played {
+  background: #ff5500;
+}
+
+.tf-audio-wave span.comment-mark {
+  background: rgba(62, 166, 255, 0.55);
+}
+
+.tf-audio-wave span.played.comment-mark {
+  background: #3ea6ff;
+  box-shadow: 0 0 6px rgba(62, 166, 255, 0.35);
+}
+
+.tf-audio-caption {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.82);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+  word-break: break-word;
+}
+
+.tf-audio-art-text .tf-audio-caption {
+  display: block;
+  overflow: visible;
+}
+
+.tf-audio-cover-field {
+  margin-top: 4px;
+}
+
+.tf-audio-cover-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.tf-audio-cover-btn,
+.tf-audio-cover-clear {
+  flex: 1;
+}
+
+.tf-audio-cover-preview {
+  margin-top: 10px;
+  width: 120px;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+}
+
+.tf-audio-cover-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tf-audio-cover-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.tf-audio-empty-hint {
+  padding: 20px 16px;
+  text-align: center;
+}
+
+.tf-audio-empty-hint p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.tf-audio-empty-sub {
+  margin-top: 6px !important;
+  font-size: 12px !important;
+}
+
+.tf-all-audio-head {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}

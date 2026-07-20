@@ -1,0 +1,134 @@
+.share-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.share-sheet {
+  width: min(100%, 480px);
+  max-height: min(80vh, 560px);
+  overflow: auto;
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  box-shadow: var(--shadow);
+}
+
+.share-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.share-sheet-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.share-sheet-close {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.share-sheet-sub,
+.share-sheet-hint,
+.share-sheet-empty {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.share-sheet-section {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  color: var(--text-faint);
+  font-weight: 700;
+}
+
+.share-sheet-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.share-sheet-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  cursor: pointer;
+  text-align: left;
+}
+
+.share-sheet-row img,
+.share-sheet-fallback {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.share-sheet-fallback {
+  display: grid;
+  place-items: center;
+  background: var(--brand-soft);
+  font-size: 18px;
+}
+
+.share-sheet-row strong {
+  display: block;
+  font-size: 14px;
+}
+
+.share-sheet-row span {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.share-sheet-done {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0 4px;
+}
+
+.share-sheet-done p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.feed-share-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+}
+
+.feed-share-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
