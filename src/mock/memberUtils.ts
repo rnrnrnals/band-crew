@@ -42,6 +42,33 @@ export function getMemberBio(member: TeamMember, user?: AppUser): string | undef
   return member.bio;
 }
 
+export function mergeDisplayProfile(
+  userId: string,
+  global: AppUser | null | undefined,
+  member: TeamMember | undefined,
+  prev?: AppUser,
+): AppUser {
+  const pickText = (...values: (string | undefined)[]) => {
+    for (const value of values) {
+      const trimmed = value?.trim();
+      if (trimmed) return trimmed;
+    }
+    return '';
+  };
+  const pickOptional = (...values: (string | undefined)[]) => {
+    const text = pickText(...values);
+    return text || undefined;
+  };
+
+  return {
+    id: userId,
+    name: pickText(member?.nick, global?.name, prev?.name) || 'User',
+    avatar: pickText(member?.avatar, global?.avatar, prev?.avatar),
+    bio: pickOptional(member?.bio, global?.bio, prev?.bio),
+    instagram: pickOptional(member?.instagram, global?.instagram, prev?.instagram),
+  };
+}
+
 export function getMemberInstagram(member: TeamMember, user?: AppUser): string | undefined {
   if (user && isCurrentMember(member, user)) {
     return user.instagram ?? member.instagram;

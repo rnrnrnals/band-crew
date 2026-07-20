@@ -1,4 +1,5 @@
-import { canvasToImageBlob, canvasToImageDataUrl } from './imageOutput';
+import { canvasToImageBlob, canvasToImageDataUrl, ensureImageBlobMime } from './imageOutput';
+import { readFileAsDataUrl } from './fileMedia';
 
 export const SQUARE_COVER_OUTPUT_SIZE = 900;
 
@@ -34,16 +35,36 @@ export function initialPan(viewport: number, imageWidth: number, imageHeight: nu
 function loadImageElement(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
+    const finish = () => {
+      if (typeof img.decode === 'function') {
+        void img.decode().then(() => resolve(img)).catch(() => resolve(img));
+        return;
+      }
+      resolve(img);
+    };
+    img.onload = finish;
     img.onerror = () => reject(new Error('이미지를 불러오지 못했어요.'));
     img.src = src;
   });
 }
 
+async function loadImageFromDataUrl(blob: Blob): Promise<HTMLImageElement> {
+  const dataUrl = await readFileAsDataUrl(blob);
+  return loadImageElement(dataUrl);
+}
+
 export async function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
+  const typedBlob = ensureImageBlobMime(blob, blob instanceof File ? blob.name : '');
+
+  try {
+    return await loadImageFromDataUrl(typedBlob);
+  } catch {
+    // Fall through to bitmap / object URL decoding.
+  }
+
   if (typeof createImageBitmap === 'function') {
     try {
-      const bitmap = await createImageBitmap(blob);
+      const bitmap = await createImageBitmap(typedBlob);
       try {
         const canvas = document.createElement('canvas');
         canvas.width = bitmap.width;
@@ -60,7 +81,7 @@ export async function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
     }
   }
 
-  const url = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(typedBlob);
   try {
     return await loadImageElement(url);
   } finally {
