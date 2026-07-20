@@ -69,6 +69,11 @@
   font-size: 13px;
 }
 
+.place-field-web-btn {
+  font-size: 12px;
+  padding-inline: 10px;
+}
+
 .place-field-preview {
   font-size: 12px;
   font-weight: 600;

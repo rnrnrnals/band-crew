@@ -7,6 +7,7 @@ import {
   loadKakaoMaps,
   searchKakaoPlaces,
 } from '../../utils/kakaoMaps';
+import { PlaceSearchSheet } from './PlaceSearchSheet';
 import './PlaceField.css';
 
 interface PlaceFieldProps {
@@ -20,14 +21,22 @@ export function PlaceField({ value, mapUrl, onValueChange, onMapUrlChange }: Pla
   const wrapRef = useRef<HTMLDivElement>(null);
   const [suggestions, setSuggestions] = useState<KakaoPlaceResult[]>([]);
   const [listOpen, setListOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [mapsReady, setMapsReady] = useState(false);
+  const [mapsError, setMapsError] = useState(false);
   const appKey = import.meta.env.VITE_KAKAO_MAP_APP_KEY;
 
   useEffect(() => {
     if (!appKey) return;
     loadKakaoMaps(appKey)
-      .then(() => setMapsReady(true))
-      .catch(() => setMapsReady(false));
+      .then(() => {
+        setMapsReady(true);
+        setMapsError(false);
+      })
+      .catch(() => {
+        setMapsReady(false);
+        setMapsError(true);
+      });
   }, [appKey]);
 
   useEffect(() => {
@@ -65,9 +74,25 @@ export function PlaceField({ value, mapUrl, onValueChange, onMapUrlChange }: Pla
     setListOpen(false);
   };
 
-  const openKakaoMap = () => {
+  const openPlaceSearch = () => {
+    if (!appKey) {
+      window.open(buildKakaoMapSearchUrl(value), '_blank', 'noopener,noreferrer');
+      return;
+    }
+    setSearchOpen(true);
+  };
+
+  const openKakaoMapWeb = () => {
     window.open(buildKakaoMapSearchUrl(value), '_blank', 'noopener,noreferrer');
   };
+
+  const hint = !appKey
+    ? '카카오맵 키가 없어 직접 입력하거나 카카오맵 웹에서 찾아보세요.'
+    : mapsError
+      ? '카카오맵 연결에 실패했어요. Developers Web 도메인 등록을 확인해 주세요.'
+      : mapsReady
+        ? '입력창에 치거나 「장소 검색」에서 고르면 일정에 자동 입력돼요.'
+        : '카카오맵 불러오는 중…';
 
   return (
     <div className="place-field">
@@ -102,8 +127,11 @@ export function PlaceField({ value, mapUrl, onValueChange, onMapUrlChange }: Pla
         )}
       </div>
       <div className="place-field-actions">
-        <button type="button" className="btn place-field-map-btn" onClick={openKakaoMap}>
-          카카오맵에서 찾기
+        <button type="button" className="btn btn-primary place-field-map-btn" onClick={openPlaceSearch}>
+          장소 검색
+        </button>
+        <button type="button" className="btn place-field-web-btn" onClick={openKakaoMapWeb}>
+          카카오맵 웹
         </button>
         {mapUrl && (
           <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="place-field-preview">
@@ -111,11 +139,19 @@ export function PlaceField({ value, mapUrl, onValueChange, onMapUrlChange }: Pla
           </a>
         )}
       </div>
-      <p className="place-field-hint">
-        {appKey && mapsReady
-          ? '입력창에 치면 카카오맵 장소 목록에서 고를 수 있어요. 직접 적어도 됩니다.'
-          : '직접 입력하거나 카카오맵에서 찾아보세요.'}
-      </p>
+      <p className="place-field-hint">{hint}</p>
+
+      {searchOpen ? (
+        <PlaceSearchSheet
+          initialQuery={value}
+          onSelect={(label, url) => {
+            onValueChange(label);
+            onMapUrlChange(url);
+            setSearchOpen(false);
+          }}
+          onClose={() => setSearchOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
