@@ -183,17 +183,6 @@ video {
   font-weight: 500;
 }
 
-.home-feed-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin: 4px 0 12px;
-}
-
-.home-feed-refresh {
-  font-size: 12px;
-  padding: 6px 12px;
-}
-
 .home-feed-row {
   position: relative;
 }

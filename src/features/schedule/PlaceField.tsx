@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { KakaoPlaceResult, SchedulePlaceSelection } from '../../utils/kakaoMaps';
 import {
   buildSchedulePlaceSelection,
+  getKakaoMapsAppKey,
   loadKakaoMaps,
   parsePlaceMapUrl,
   searchKakaoPlaces,
@@ -23,8 +24,8 @@ export function PlaceField({ value, mapUrl, onValueChange, onMapUrlChange }: Pla
   const [listOpen, setListOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [mapsReady, setMapsReady] = useState(false);
-  const [mapsError, setMapsError] = useState(false);
-  const appKey = import.meta.env.VITE_KAKAO_MAP_APP_KEY;
+  const [mapsError, setMapsError] = useState('');
+  const appKey = getKakaoMapsAppKey();
   const parsedMap = parsePlaceMapUrl(mapUrl);
 
   useEffect(() => {
@@ -32,11 +33,11 @@ export function PlaceField({ value, mapUrl, onValueChange, onMapUrlChange }: Pla
     loadKakaoMaps(appKey)
       .then(() => {
         setMapsReady(true);
-        setMapsError(false);
+        setMapsError('');
       })
-      .catch(() => {
+      .catch((err) => {
         setMapsReady(false);
-        setMapsError(true);
+        setMapsError(err instanceof Error ? err.message : '카카오맵 연결에 실패했어요.');
       });
   }, [appKey]);
 
@@ -80,9 +81,9 @@ export function PlaceField({ value, mapUrl, onValueChange, onMapUrlChange }: Pla
   };
 
   const hint = !appKey
-    ? '카카오맵 키가 없어 장소를 직접 입력해야 해요.'
+    ? '카카오맵 키가 없어 장소를 직접 입력해야 해요. .env에 VITE_KAKAO_MAP_APP_KEY(JavaScript 키)를 넣고 dev 서버를 재시작하세요.'
     : mapsError
-      ? '카카오맵 연결에 실패했어요. Developers Web 도메인 등록을 확인해 주세요.'
+      ? mapsError
       : mapsReady
         ? '입력창 자동완성 또는 「카카오맵에서 장소 선택」을 사용하세요.'
         : '카카오맵 불러오는 중…';

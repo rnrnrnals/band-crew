@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { KakaoPlaceResult, SchedulePlaceSelection } from '../../utils/kakaoMaps';
 import {
   buildSchedulePlaceSelection,
+  buildSchedulePlaceSelectionFromCoords,
+  getKakaoMapsAppKey,
+  getKakaoMapsSetupHelp,
   loadKakaoMaps,
+  reverseGeocodeCoords,
   searchKakaoPlaces,
 } from '../../utils/kakaoMaps';
-import { KakaoPlaceMap } from './KakaoPlaceMap';
+import { KakaoPlacePickerMap } from './KakaoPlaceMap';
 import './PlaceSearchSheet.css';
 
 interface PlaceSearchSheetProps {
@@ -16,22 +20,26 @@ interface PlaceSearchSheetProps {
 }
 
 export function PlaceSearchSheet({ initialQuery = '', onSelect, onClose }: PlaceSearchSheetProps) {
-  const appKey = import.meta.env.VITE_KAKAO_MAP_APP_KEY;
+  const appKey = getKakaoMapsAppKey();
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<KakaoPlaceResult[]>([]);
   const [preview, setPreview] = useState<SchedulePlaceSelection | null>(null);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
   const [error, setError] = useState('');
   const [mapsReady, setMapsReady] = useState(false);
 
   useEffect(() => {
     if (!appKey) {
-      setError('카카오맵 키가 설정되지 않았어요.');
+      setError('카카오맵 키가 설정되지 않았어요. .env에 JavaScript 키를 넣고 dev 서버를 재시작하세요.');
       return;
     }
     loadKakaoMaps(appKey)
       .then(() => setMapsReady(true))
-      .catch(() => setError('카카오맵을 불러오지 못했어요. Developers Web 도메인 등록을 확인해 주세요.'));
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : getKakaoMapsSetupHelp()),
+      );
   }, [appKey]);
 
   useEffect(() => {
@@ -53,7 +61,9 @@ export function PlaceSearchSheet({ initialQuery = '', onSelect, onClose }: Place
             setError('검색 결과가 없어요.');
             return;
           }
-          setPreview(buildSchedulePlaceSelection(items[0]));
+          const first = buildSchedulePlaceSelection(items[0]);
+          setPreview(first);
+          setMapCenter({ lat: first.lat, lng: first.lng });
         })
         .catch(() => {
           setResults([]);
@@ -65,16 +75,38 @@ export function PlaceSearchSheet({ initialQuery = '', onSelect, onClose }: Place
     return () => window.clearTimeout(timer);
   }, [appKey, mapsReady, query]);
 
-  const previewPlace = (place: KakaoPlaceResult) => {
-    setPreview(buildSchedulePlaceSelection(place));
+  const selectPlace = (place: KakaoPlaceResult) => {
+    onSelect(buildSchedulePlaceSelection(place));
   };
+
+  const focusPlace = (place: KakaoPlaceResult) => {
+    const selection = buildSchedulePlaceSelection(place);
+    setPreview(selection);
+    setMapCenter({ lat: selection.lat, lng: selection.lng });
+  };
+
+  const handleMapCenterChange = useCallback(
+    (lat: number, lng: number) => {
+      if (!appKey) return;
+      setGeocoding(true);
+      setError('');
+      void reverseGeocodeCoords(appKey, lat, lng)
+        .then(({ label }) => {
+          setPreview(buildSchedulePlaceSelectionFromCoords(label, lat, lng));
+          setMapCenter({ lat, lng });
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : '주소를 불러오지 못했어요.');
+        })
+        .finally(() => setGeocoding(false));
+    },
+    [appKey],
+  );
 
   const confirmSelection = () => {
     if (!preview) return;
     onSelect(preview);
   };
-
-  const previewCoords = preview ? { lat: preview.lat, lng: preview.lng } : undefined;
 
   const sheet = (
     <div className="place-search-backdrop" onClick={onClose} role="presentation">
@@ -92,13 +124,22 @@ export function PlaceSearchSheet({ initialQuery = '', onSelect, onClose }: Place
           </button>
         </header>
 
-        <p className="place-search-sub">카카오맵에서 장소를 고르면 일정에 입력되고 아래 지도에 표시돼요.</p>
+        <p className="place-search-sub">
+          검색 결과를 탭하면 바로 선택됩니다. 지도를 드래그해 핀 위치를 맞춘 뒤 「이 위치 선택」도 가능해요.
+        </p>
 
-        <KakaoPlaceMap lat={previewCoords?.lat} lng={previewCoords?.lng} height={180} level={3} />
+        <KakaoPlacePickerMap
+          centerLat={mapCenter?.lat}
+          centerLng={mapCenter?.lng}
+          onCenterChange={handleMapCenterChange}
+          height={200}
+          level={3}
+        />
 
         {preview ? (
           <p className="place-search-preview-label">
             <strong>{preview.label}</strong>
+            {geocoding ? <span> · 주소 확인 중…</span> : null}
           </p>
         ) : null}
 
@@ -119,7 +160,9 @@ export function PlaceSearchSheet({ initialQuery = '', onSelect, onClose }: Place
               <button
                 type="button"
                 className={`place-search-item${preview?.placeId === place.id ? ' is-active' : ''}`}
-                onClick={() => previewPlace(place)}
+                onClick={() => selectPlace(place)}
+                onMouseEnter={() => focusPlace(place)}
+                onFocus={() => focusPlace(place)}
               >
                 <strong>{place.place_name}</strong>
                 <span>{place.road_address_name || place.address_name}</span>
@@ -132,8 +175,13 @@ export function PlaceSearchSheet({ initialQuery = '', onSelect, onClose }: Place
           <button type="button" className="btn" onClick={onClose}>
             취소
           </button>
-          <button type="button" className="btn btn-primary" disabled={!preview} onClick={confirmSelection}>
-            이 장소 선택
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={!preview || geocoding}
+            onClick={confirmSelection}
+          >
+            이 위치 선택
           </button>
         </div>
       </div>

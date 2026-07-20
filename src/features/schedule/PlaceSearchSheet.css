@@ -10,11 +10,11 @@
 
 .place-search-sheet {
   width: min(100%, 480px);
-  max-height: min(80vh, 560px);
+  max-height: min(85vh, 620px);
   overflow: auto;
   background: var(--surface);
   border-radius: 16px 16px 0 0;
-  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  padding: 16px 16px calc(72px + env(safe-area-inset-bottom));
   box-shadow: var(--shadow);
 }
 
@@ -115,9 +115,13 @@
 }
 
 .place-search-actions {
+  position: sticky;
+  bottom: 0;
   display: flex;
   gap: 8px;
   margin-top: 12px;
+  padding-top: 12px;
+  background: linear-gradient(to top, var(--surface) 70%, transparent);
 }
 
 .place-search-actions .btn {

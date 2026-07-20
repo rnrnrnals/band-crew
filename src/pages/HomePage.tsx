@@ -96,12 +96,6 @@ export function HomePage() {
 
       <StoryRail onOpen={setStoryId} />
 
-      <div className="home-feed-toolbar">
-        <button type="button" className="btn home-feed-refresh" onClick={() => void refreshHomeContent()}>
-          피드 새로고침
-        </button>
-      </div>
-
       {feed.map((item) => (
         <HomeFeedRow
           key={`${item.kind}:${item.id}`}
