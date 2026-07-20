@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { compressImageBlob, readFileAsDataUrl } from '../../utils/fileMedia';
+import { isAndroidBrowser } from '../../utils/imageMime';
 import { prepareProfileImageFile } from '../../utils/prepareProfileImageFile';
 import {
   clampPan,
@@ -41,19 +42,38 @@ export function SquareImageCropSheet({
   const [preparedFile, setPreparedFile] = useState<File | null>(null);
   const [error, setError] = useState('');
 
-  const previewUrl = useMemo(() => {
-    if (!preparedFile) return null;
-    return URL.createObjectURL(preparedFile);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!preparedFile) {
+      setPreviewUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    void (async () => {
+      try {
+        const nextUrl = isAndroidBrowser()
+          ? await readFileAsDataUrl(preparedFile)
+          : URL.createObjectURL(preparedFile);
+        if (!isAndroidBrowser()) objectUrl = nextUrl;
+        if (!cancelled) setPreviewUrl(nextUrl);
+      } catch {
+        if (!cancelled) setPreviewUrl(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [preparedFile]);
 
   useEffect(() => {
     openedAtRef.current = Date.now();
   }, [file]);
-
-  useEffect(() => {
-    if (!previewUrl) return;
-    return () => URL.revokeObjectURL(previewUrl);
-  }, [previewUrl]);
 
   useEffect(() => {
     let cancelled = false;
