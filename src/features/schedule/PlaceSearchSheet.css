@@ -98,3 +98,28 @@
 .place-search-item:active {
   background: var(--bg-deep);
 }
+
+.place-search-item.is-active {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.place-search-preview-label {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.place-search-preview-label strong {
+  color: var(--text);
+}
+
+.place-search-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.place-search-actions .btn {
+  flex: 1;
+}

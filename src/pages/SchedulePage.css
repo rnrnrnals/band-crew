@@ -47,17 +47,23 @@
   color: var(--red);
 }
 
-.event-card div:last-child {
+.event-card-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
   font-size: 12px;
   color: var(--text-muted);
 }
 
-.event-card strong {
+.event-card-body strong {
   color: var(--text);
   font-size: 15px;
+}
+
+.event-card-map {
+  margin-top: 6px;
 }
 
 .event-place-link {

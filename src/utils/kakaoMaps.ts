@@ -8,11 +8,27 @@ export interface KakaoPlaceResult {
   y: string;
 }
 
+export interface SchedulePlaceSelection {
+  label: string;
+  mapUrl: string;
+  lat: number;
+  lng: number;
+  placeId?: string;
+}
+
+const COORD_HASH = '#@';
+
 declare global {
   interface Window {
     kakao?: {
       maps: {
         load: (callback: () => void) => void;
+        Map: new (
+          container: HTMLElement,
+          options: { center: KakaoLatLng; level: number },
+        ) => KakaoMap;
+        LatLng: new (lat: number, lng: number) => KakaoLatLng;
+        Marker: new (options: { map: KakaoMap; position: KakaoLatLng }) => KakaoMarker;
         services: {
           Places: new () => {
             keywordSearch: (
@@ -28,6 +44,21 @@ declare global {
       };
     };
   }
+}
+
+interface KakaoLatLng {
+  getLat(): number;
+  getLng(): number;
+}
+
+interface KakaoMap {
+  setCenter(latlng: KakaoLatLng): void;
+  setLevel(level: number): void;
+}
+
+interface KakaoMarker {
+  setMap(map: KakaoMap | null): void;
+  setPosition(latlng: KakaoLatLng): void;
 }
 
 let loadPromise: Promise<void> | null = null;
@@ -74,6 +105,10 @@ export function loadKakaoMaps(appKey: string): Promise<void> {
   return loadPromise;
 }
 
+export function placeResultToLatLng(place: KakaoPlaceResult): { lat: number; lng: number } {
+  return { lat: Number(place.y), lng: Number(place.x) };
+}
+
 export function searchKakaoPlaces(appKey: string, keyword: string): Promise<KakaoPlaceResult[]> {
   const trimmed = keyword.trim();
   if (!trimmed) return Promise.resolve([]);
@@ -106,8 +141,44 @@ export function getKakaoPlaceLabel(place: KakaoPlaceResult): string {
   return address ? `${place.place_name} · ${address}` : place.place_name;
 }
 
-export function buildKakaoPlaceUrl(place: KakaoPlaceResult): string {
+export function buildKakaoPlaceLink(place: KakaoPlaceResult): string {
   if (place.place_url) return place.place_url;
   if (place.id) return `https://map.kakao.com/link/map/${place.id}`;
   return buildKakaoMapSearchUrl(place.place_name);
+}
+
+export function buildSchedulePlaceSelection(place: KakaoPlaceResult): SchedulePlaceSelection {
+  const { lat, lng } = placeResultToLatLng(place);
+  const linkUrl = buildKakaoPlaceLink(place);
+  return {
+    label: getKakaoPlaceLabel(place),
+    mapUrl: encodePlaceMapUrl(linkUrl, lat, lng),
+    lat,
+    lng,
+    placeId: place.id,
+  };
+}
+
+export function encodePlaceMapUrl(linkUrl: string, lat: number, lng: number): string {
+  return `${linkUrl}${COORD_HASH}${lat},${lng}`;
+}
+
+export function parsePlaceMapUrl(mapUrl?: string): { linkUrl: string; lat?: number; lng?: number } {
+  if (!mapUrl) return { linkUrl: '' };
+  const hashIndex = mapUrl.indexOf(COORD_HASH);
+  if (hashIndex === -1) return { linkUrl: mapUrl };
+
+  const linkUrl = mapUrl.slice(0, hashIndex);
+  const [latStr, lngStr] = mapUrl.slice(hashIndex + COORD_HASH.length).split(',');
+  const lat = Number(latStr);
+  const lng = Number(lngStr);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { linkUrl: mapUrl };
+  }
+  return { linkUrl, lat, lng };
+}
+
+/** @deprecated use buildKakaoPlaceLink */
+export function buildKakaoPlaceUrl(place: KakaoPlaceResult): string {
+  return buildSchedulePlaceSelection(place).mapUrl;
 }

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import type { KakaoPlaceResult } from '../../utils/kakaoMaps';
+import type { KakaoPlaceResult, SchedulePlaceSelection } from '../../utils/kakaoMaps';
 import {
-  buildKakaoMapSearchUrl,
-  buildKakaoPlaceUrl,
-  getKakaoPlaceLabel,
+  buildSchedulePlaceSelection,
   loadKakaoMaps,
+  parsePlaceMapUrl,
   searchKakaoPlaces,
 } from '../../utils/kakaoMaps';
+import { KakaoPlaceMap } from './KakaoPlaceMap';
 import { PlaceSearchSheet } from './PlaceSearchSheet';
 import './PlaceField.css';
 
@@ -25,6 +25,7 @@ export function PlaceField({ value, mapUrl, onValueChange, onMapUrlChange }: Pla
   const [mapsReady, setMapsReady] = useState(false);
   const [mapsError, setMapsError] = useState(false);
   const appKey = import.meta.env.VITE_KAKAO_MAP_APP_KEY;
+  const parsedMap = parsePlaceMapUrl(mapUrl);
 
   useEffect(() => {
     if (!appKey) return;
@@ -67,31 +68,23 @@ export function PlaceField({ value, mapUrl, onValueChange, onMapUrlChange }: Pla
     return () => document.removeEventListener('mousedown', onPointerDown);
   }, []);
 
-  const selectPlace = (place: KakaoPlaceResult) => {
-    onValueChange(getKakaoPlaceLabel(place));
-    onMapUrlChange(buildKakaoPlaceUrl(place));
+  const applySelection = (selection: SchedulePlaceSelection) => {
+    onValueChange(selection.label);
+    onMapUrlChange(selection.mapUrl);
     setSuggestions([]);
     setListOpen(false);
   };
 
-  const openPlaceSearch = () => {
-    if (!appKey) {
-      window.open(buildKakaoMapSearchUrl(value), '_blank', 'noopener,noreferrer');
-      return;
-    }
-    setSearchOpen(true);
-  };
-
-  const openKakaoMapWeb = () => {
-    window.open(buildKakaoMapSearchUrl(value), '_blank', 'noopener,noreferrer');
+  const selectPlace = (place: KakaoPlaceResult) => {
+    applySelection(buildSchedulePlaceSelection(place));
   };
 
   const hint = !appKey
-    ? '카카오맵 키가 없어 직접 입력하거나 카카오맵 웹에서 찾아보세요.'
+    ? '카카오맵 키가 없어 장소를 직접 입력해야 해요.'
     : mapsError
       ? '카카오맵 연결에 실패했어요. Developers Web 도메인 등록을 확인해 주세요.'
       : mapsReady
-        ? '입력창에 치거나 「장소 검색」에서 고르면 일정에 자동 입력돼요.'
+        ? '입력창 자동완성 또는 「카카오맵에서 장소 선택」을 사용하세요.'
         : '카카오맵 불러오는 중…';
 
   return (
@@ -107,7 +100,7 @@ export function PlaceField({ value, mapUrl, onValueChange, onMapUrlChange }: Pla
           onFocus={() => {
             if (suggestions.length > 0) setListOpen(true);
           }}
-          placeholder="직접 입력하거나 장소 검색"
+          placeholder="직접 입력하거나 카카오맵에서 선택"
         />
         {listOpen && suggestions.length > 0 && (
           <ul className="place-suggest-list" role="listbox">
@@ -126,27 +119,34 @@ export function PlaceField({ value, mapUrl, onValueChange, onMapUrlChange }: Pla
           </ul>
         )}
       </div>
-      <div className="place-field-actions">
-        <button type="button" className="btn btn-primary place-field-map-btn" onClick={openPlaceSearch}>
-          장소 검색
-        </button>
-        <button type="button" className="btn place-field-web-btn" onClick={openKakaoMapWeb}>
-          카카오맵 웹
-        </button>
-        {mapUrl && (
-          <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="place-field-preview">
-            선택한 장소 보기
-          </a>
-        )}
-      </div>
+
+      <button
+        type="button"
+        className="btn btn-primary place-field-map-btn"
+        disabled={!appKey}
+        onClick={() => setSearchOpen(true)}
+      >
+        카카오맵에서 장소 선택
+      </button>
+
+      {parsedMap.lat != null && parsedMap.lng != null ? (
+        <div className="place-field-map-preview">
+          <KakaoPlaceMap lat={parsedMap.lat} lng={parsedMap.lng} height={160} level={3} />
+          {parsedMap.linkUrl ? (
+            <a href={parsedMap.linkUrl} target="_blank" rel="noopener noreferrer" className="place-field-preview">
+              카카오맵에서 크게 보기
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+
       <p className="place-field-hint">{hint}</p>
 
       {searchOpen ? (
         <PlaceSearchSheet
           initialQuery={value}
-          onSelect={(label, url) => {
-            onValueChange(label);
-            onMapUrlChange(url);
+          onSelect={(selection) => {
+            applySelection(selection);
             setSearchOpen(false);
           }}
           onClose={() => setSearchOpen(false)}

@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { KakaoPlaceResult } from '../../utils/kakaoMaps';
+import type { KakaoPlaceResult, SchedulePlaceSelection } from '../../utils/kakaoMaps';
 import {
-  buildKakaoPlaceUrl,
-  getKakaoPlaceLabel,
+  buildSchedulePlaceSelection,
   loadKakaoMaps,
   searchKakaoPlaces,
 } from '../../utils/kakaoMaps';
+import { KakaoPlaceMap } from './KakaoPlaceMap';
 import './PlaceSearchSheet.css';
 
 interface PlaceSearchSheetProps {
   initialQuery?: string;
-  onSelect: (label: string, mapUrl: string) => void;
+  onSelect: (selection: SchedulePlaceSelection) => void;
   onClose: () => void;
 }
 
@@ -19,6 +19,7 @@ export function PlaceSearchSheet({ initialQuery = '', onSelect, onClose }: Place
   const appKey = import.meta.env.VITE_KAKAO_MAP_APP_KEY;
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<KakaoPlaceResult[]>([]);
+  const [preview, setPreview] = useState<SchedulePlaceSelection | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [mapsReady, setMapsReady] = useState(false);
@@ -30,7 +31,7 @@ export function PlaceSearchSheet({ initialQuery = '', onSelect, onClose }: Place
     }
     loadKakaoMaps(appKey)
       .then(() => setMapsReady(true))
-      .catch(() => setError('카카오맵을 불러오지 못했어요. 도메인 등록을 확인해 주세요.'));
+      .catch(() => setError('카카오맵을 불러오지 못했어요. Developers Web 도메인 등록을 확인해 주세요.'));
   }, [appKey]);
 
   useEffect(() => {
@@ -48,7 +49,11 @@ export function PlaceSearchSheet({ initialQuery = '', onSelect, onClose }: Place
       searchKakaoPlaces(appKey, trimmed)
         .then((items) => {
           setResults(items.slice(0, 8));
-          if (items.length === 0) setError('검색 결과가 없어요.');
+          if (items.length === 0) {
+            setError('검색 결과가 없어요.');
+            return;
+          }
+          setPreview(buildSchedulePlaceSelection(items[0]));
         })
         .catch(() => {
           setResults([]);
@@ -60,9 +65,16 @@ export function PlaceSearchSheet({ initialQuery = '', onSelect, onClose }: Place
     return () => window.clearTimeout(timer);
   }, [appKey, mapsReady, query]);
 
-  const pick = (place: KakaoPlaceResult) => {
-    onSelect(getKakaoPlaceLabel(place), buildKakaoPlaceUrl(place));
+  const previewPlace = (place: KakaoPlaceResult) => {
+    setPreview(buildSchedulePlaceSelection(place));
   };
+
+  const confirmSelection = () => {
+    if (!preview) return;
+    onSelect(preview);
+  };
+
+  const previewCoords = preview ? { lat: preview.lat, lng: preview.lng } : undefined;
 
   const sheet = (
     <div className="place-search-backdrop" onClick={onClose} role="presentation">
@@ -80,7 +92,15 @@ export function PlaceSearchSheet({ initialQuery = '', onSelect, onClose }: Place
           </button>
         </header>
 
-        <p className="place-search-sub">장소를 고르면 일정 입력란에 자동으로 들어가요.</p>
+        <p className="place-search-sub">카카오맵에서 장소를 고르면 일정에 입력되고 아래 지도에 표시돼요.</p>
+
+        <KakaoPlaceMap lat={previewCoords?.lat} lng={previewCoords?.lng} height={180} level={3} />
+
+        {preview ? (
+          <p className="place-search-preview-label">
+            <strong>{preview.label}</strong>
+          </p>
+        ) : null}
 
         <input
           className="place-search-input"
@@ -96,13 +116,26 @@ export function PlaceSearchSheet({ initialQuery = '', onSelect, onClose }: Place
         <ul className="place-search-list" role="listbox">
           {results.map((place) => (
             <li key={place.id}>
-              <button type="button" className="place-search-item" onClick={() => pick(place)}>
+              <button
+                type="button"
+                className={`place-search-item${preview?.placeId === place.id ? ' is-active' : ''}`}
+                onClick={() => previewPlace(place)}
+              >
                 <strong>{place.place_name}</strong>
                 <span>{place.road_address_name || place.address_name}</span>
               </button>
             </li>
           ))}
         </ul>
+
+        <div className="place-search-actions">
+          <button type="button" className="btn" onClick={onClose}>
+            취소
+          </button>
+          <button type="button" className="btn btn-primary" disabled={!preview} onClick={confirmSelection}>
+            이 장소 선택
+          </button>
+        </div>
       </div>
     </div>
   );

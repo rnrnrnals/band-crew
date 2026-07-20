@@ -3,8 +3,8 @@ import { useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext';
 
 import { PlaceField } from '../features/schedule/PlaceField';
-
-import { buildKakaoMapSearchUrl } from '../utils/kakaoMaps';
+import { KakaoPlaceMap } from '../features/schedule/KakaoPlaceMap';
+import { buildKakaoMapSearchUrl, parsePlaceMapUrl } from '../utils/kakaoMaps';
 
 import './SchedulePage.css';
 
@@ -172,77 +172,46 @@ export function SchedulePage() {
 
       <div className="event-list">
 
-        {mine.map((e) => (
+        {mine.map((e) => {
+          const placeMeta = parsePlaceMapUrl(e.placeMapUrl);
+          const placeLink = placeMeta.linkUrl || buildKakaoMapSearchUrl(e.place);
 
+          return (
           <div key={e.id} className="event-card">
-
             <div className={`kind ${e.kind}`}>{kindLabel[e.kind]}</div>
 
-            <div>
-
+            <div className="event-card-body">
               <strong>{e.title}</strong>
-
               <span>
-
                 {new Date(e.date).toLocaleString('ko-KR', {
-
                   month: 'short',
-
                   day: 'numeric',
-
                   weekday: 'short',
-
                   hour: '2-digit',
-
                   minute: '2-digit',
-
                 })}
-
               </span>
-
-              {e.placeMapUrl ? (
-
-                <a
-
-                  href={e.placeMapUrl}
-
-                  target="_blank"
-
-                  rel="noopener noreferrer"
-
-                  className="event-place-link"
-
-                >
-
-                  {e.place}
-
-                </a>
-
-              ) : (
-
-                <a
-
-                  href={buildKakaoMapSearchUrl(e.place)}
-
-                  target="_blank"
-
-                  rel="noopener noreferrer"
-
-                  className="event-place-link"
-
-                >
-
-                  {e.place}
-
-                </a>
-
-              )}
-
+              <a
+                href={placeLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="event-place-link"
+              >
+                {e.place}
+              </a>
+              {placeMeta.lat != null && placeMeta.lng != null ? (
+                <KakaoPlaceMap
+                  lat={placeMeta.lat}
+                  lng={placeMeta.lng}
+                  height={120}
+                  level={4}
+                  className="event-card-map"
+                />
+              ) : null}
             </div>
-
           </div>
-
-        ))}
+          );
+        })}
 
         {mine.length === 0 && <p className="empty">아직 일정이 없어요.</p>}
 
