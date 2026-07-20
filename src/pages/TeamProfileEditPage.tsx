@@ -40,7 +40,7 @@ export function TeamProfileEditPage() {
     setError('');
     try {
       const publishedCover = await ensurePublishedImageUrl(cover, 'teams', activeTeam.id);
-      updateTeamProfile(activeTeam.id, {
+      await updateTeamProfile(activeTeam.id, {
         cover: publishedCover,
         bio: normalizeTeamBio(bio) || activeTeam.bio,
         genre: genre.trim() || activeTeam.genre,

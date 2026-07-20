@@ -77,7 +77,7 @@ import {
   isMissingTeamPracticeSongsTable,
   promoteTeamPracticeSongInDb,
 } from '../services/teamPracticeSongService';
-import { createScheduleEventInDb } from '../services/scheduleService';
+import { createScheduleEventInDb, deleteScheduleEventInDb } from '../services/scheduleService';
 import { createStoryInDb } from '../services/storiesService';
 import {
   fetchFollowsForTeam,
@@ -93,7 +93,9 @@ import {
   updatePostCommentInDb,
 } from '../services/postsService';
 import {
+  cleanupEmptyTeamsInDb,
   createTeamInDb,
+  normalizeTeamName,
   fetchMyTeams,
   fetchTeamById,
   generateInviteCodeInDb,
@@ -179,6 +181,7 @@ interface AppState {
   deleteComment: (postId: string, commentId: string) => void;
   toggleCommentLike: (postId: string, commentId: string) => void;
   addEvent: (ev: Omit<ScheduleEvent, 'id'>) => void;
+  deleteEvent: (eventId: string) => Promise<boolean>;
   addSession: (title: string, bpm: number, teamId?: string) => PracticeSessionMeta;
   addTeamPracticeSong: (title: string, teamId: string) => Promise<{ ok: boolean; message?: string }>;
   updatePracticeSession: (sessionId: string, patch: { title?: string; bpm?: number }) => Promise<void>;
@@ -194,8 +197,16 @@ interface AppState {
   updateHighlight: (highlightId: string, patch: { title?: string; storyIds?: string[] }) => void;
   appendStoriesToHighlight: (highlightId: string, storyIds: string[]) => void;
   deleteHighlight: (highlightId: string) => void;
-  updateTeamProfile: (teamId: string, patch: { cover?: string; bio?: string; genre?: string; instagram?: string }) => void;
-  updateUserProfile: (patch: { name?: string; avatar?: string; bio?: string; instagram?: string }) => void;
+  updateTeamProfile: (
+    teamId: string,
+    patch: { cover?: string; bio?: string; genre?: string; instagram?: string },
+  ) => Promise<void>;
+  updateUserProfile: (patch: {
+    name?: string;
+    avatar?: string;
+    bio?: string;
+    instagram?: string;
+  }) => Promise<void>;
   updateMyPosition: (position: PositionId) => void;
   generateTeamInviteCode: (teamId: string) => void;
   addTeamAudio: (input: Omit<TeamAudioTrack, 'id' | 'createdAt' | 'comments' | 'likes' | 'likedByMe'>) => void;
@@ -261,7 +272,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const initial = useDb ? ({} as Partial<Persisted>) : loadPersisted();
   const initialUser = resolveUserProfile(initial);
-  const [customTeams, setCustomTeams] = useState<BandTeam[]>(initial.customTeams ?? []);
+  const [customTeams, setCustomTeams] = useState<BandTeam[]>(() =>
+    (initial.customTeams ?? []).filter((team) => team.members.length > 0),
+  );
   const [userProfile, setUserProfile] = useState<AppUser>(initialUser);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(
     initial.activeTeamId ?? (useDb ? null : 't-demo'),
@@ -392,7 +405,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setDataLoading(true);
     setDataReady(false);
 
-    bootstrapUserData(userId)
+    cleanupEmptyTeamsInDb()
+      .then(() => bootstrapUserData(userId))
       .then((data) => {
         if (cancelled) return;
         applyBootstrapData(data);
@@ -666,6 +680,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return { ok: false, message: '팀 이름을 입력해주세요.' };
+    }
+    const normalized = normalizeTeamName(trimmedName);
+    const nameTaken = [...TEAMS, ...customTeams].some(
+      (team) => normalizeTeamName(team.name) === normalized,
+    );
+    if (nameTaken) {
+      return { ok: false, message: '이미 사용 중인 팀 이름이에요.' };
+    }
+
     const id = `t-${Date.now()}`;
     const trimmedNick = nick.trim();
     const member: TeamMember = {
@@ -678,8 +704,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
     const team: BandTeam = {
       id,
-      name,
-      genre,
+      name: trimmedName,
+      genre: genre.trim() || '장르 미정',
       bio: '새로 만든 밴드팀입니다.',
       cover: '',
       members: [member],
@@ -697,7 +723,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       myTeamIds: nextMine,
       activeTeamId: id,
     });
-    return { ok: true, message: `${name.trim()} 팀을 만들었어요!` };
+    return { ok: true, message: `${trimmedName} 팀을 만들었어요!` };
   };
 
   const joinTeam = async (
@@ -778,6 +804,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { ok: true, message: `${team.name}에 가입했어요!` };
   };
 
+  const purgeTeamFromState = useCallback(
+    (teamId: string, nextActiveTeamId?: string | null) => {
+      setMyTeamIds((prev) => prev.filter((id) => id !== teamId));
+      setCustomTeams((prev) => prev.filter((t) => t.id !== teamId));
+      setSessions((prev) => prev.filter((s) => s.teamId !== teamId));
+      setPosts((prev) => prev.filter((p) => p.teamId !== teamId));
+      setEvents((prev) => prev.filter((e) => e.teamId !== teamId));
+      setStories((prev) => prev.filter((s) => s.teamId !== teamId));
+      setHighlights((prev) => prev.filter((h) => h.teamId !== teamId));
+      setTeamAudios((prev) => prev.filter((a) => a.teamId !== teamId));
+      setChatMessages((prev) => prev.filter((m) => m.teamId !== teamId));
+      setTeamPracticeSongs((prev) => prev.filter((s) => s.teamId !== teamId));
+      setActiveTeamId((prev) => {
+        if (prev !== teamId) return prev;
+        if (nextActiveTeamId !== undefined) return nextActiveTeamId;
+        return null;
+      });
+    },
+    [],
+  );
+
   const leaveTeam = async (teamId: string): Promise<{ ok: boolean; message: string }> => {
     if (!myTeamIds.includes(teamId)) {
       return { ok: false, message: '이 팀의 멤버가 아니에요.' };
@@ -794,18 +841,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const res = await leaveTeamInDb(userId, teamId);
         if (!res.ok) return res;
 
-        setMyTeamIds((prev) => prev.filter((id) => id !== teamId));
-        setCustomTeams((prev) => prev.filter((t) => t.id !== teamId));
-        setSessions((prev) => prev.filter((s) => s.teamId !== teamId));
-        setPosts((prev) => prev.filter((p) => p.teamId !== teamId));
-        setEvents((prev) => prev.filter((e) => e.teamId !== teamId));
-        setStories((prev) => prev.filter((s) => s.teamId !== teamId));
-        setHighlights((prev) => prev.filter((h) => h.teamId !== teamId));
-        setTeamAudios((prev) => prev.filter((a) => a.teamId !== teamId));
-        setChatMessages((prev) => prev.filter((m) => m.teamId !== teamId));
-        if (activeTeamId === teamId) {
-          setActiveTeamId(res.nextActiveTeamId);
-        }
+        purgeTeamFromState(teamId, res.nextActiveTeamId);
         return { ok: true, message: res.message };
       } catch (err) {
         return {
@@ -818,10 +854,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const nextMine = myTeamIds.filter((id) => id !== teamId);
     const nextCustom = customTeams.filter((t) => t.id !== teamId);
     const nextActive = activeTeamId === teamId ? (nextMine[0] ?? null) : activeTeamId;
-    setMyTeamIds(nextMine);
-    setCustomTeams(nextCustom);
-    setActiveTeamId(nextActive);
-    persist({ myTeamIds: nextMine, customTeams: nextCustom, activeTeamId: nextActive });
+    purgeTeamFromState(teamId, nextActive);
+    persist({
+      myTeamIds: nextMine,
+      customTeams: nextCustom,
+      activeTeamId: nextActive,
+      sessions: sessions.filter((s) => s.teamId !== teamId),
+      posts: posts.filter((p) => p.teamId !== teamId),
+      events: events.filter((e) => e.teamId !== teamId),
+      stories: stories.filter((s) => s.teamId !== teamId),
+      highlights: highlights.filter((h) => h.teamId !== teamId),
+      teamAudios: teamAudios.filter((a) => a.teamId !== teamId),
+      chatMessages: chatMessages.filter((m) => m.teamId !== teamId),
+      teamPracticeSongs: teamPracticeSongs.filter((s) => s.teamId !== teamId),
+    });
     return { ok: true, message: '팀에서 나갔어요.' };
   };
 
@@ -1208,6 +1254,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setEvents(next);
     persist({ events: next });
   };
+
+  const deleteEvent = useCallback(
+    (eventId: string): Promise<boolean> => {
+      const target = events.find((event) => event.id === eventId);
+      if (!target || !canManageTeam(target.teamId)) return Promise.resolve(false);
+      if (!confirm(`"${target.title}" 일정을 삭제할까요?`)) {
+        return Promise.resolve(false);
+      }
+
+      const removeLocal = () => {
+        setEvents((prev) => {
+          const next = prev.filter((event) => event.id !== eventId);
+          if (!useDb) persist({ events: next });
+          return next;
+        });
+      };
+
+      if (useDb && userId) {
+        return deleteScheduleEventInDb(eventId)
+          .then(() => {
+            removeLocal();
+            return true;
+          })
+          .catch((err) => {
+            console.error('[BandCrew] deleteEvent failed', err);
+            return false;
+          });
+      }
+
+      removeLocal();
+      return Promise.resolve(true);
+    },
+    [events, canManageTeam, useDb, userId, persist],
+  );
 
   const isOwnPracticeSession = useCallback(
     (session: PracticeSessionMeta) => {
@@ -1719,7 +1799,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateTeamProfile = (
+  const updateTeamProfile = async (
     teamId: string,
     patch: { cover?: string; bio?: string; genre?: string; instagram?: string },
   ) => {
@@ -1746,18 +1826,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         : team,
     );
     setCustomTeams(nextCustom);
-    if (!useDb) persist({ customTeams: nextCustom });
-    if (useDb) {
-      void updateTeamProfileInDb(teamId, normalizedPatch)
-        .then(() => fetchTeamById(teamId))
-        .then((team) => {
-          if (team) mergeTeam(team);
-        })
-        .catch((err) => console.error('[BandCrew] updateTeamProfile failed', err));
+    if (!useDb) {
+      persist({ customTeams: nextCustom });
+      return;
     }
+
+    await updateTeamProfileInDb(teamId, normalizedPatch);
+    const team = await fetchTeamById(teamId);
+    if (team) mergeTeam(team);
   };
 
-  const updateUserProfile = (patch: {
+  const updateUserProfile = async (patch: {
     name?: string;
     avatar?: string;
     bio?: string;
@@ -1787,21 +1866,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     setUserProfile(nextUser);
     setCustomTeams(nextCustom);
-    if (!useDb) persist({ userProfile: nextUser, customTeams: nextCustom });
+    if (!useDb) {
+      persist({ userProfile: nextUser, customTeams: nextCustom });
+      return;
+    }
+
     if (isSupabaseConfigured && authRequired) {
-      void updateRemoteProfile({
+      await updateRemoteProfile({
         name: nextUser.name,
         avatar: nextUser.avatar,
         bio: nextUser.bio,
         instagram: nextUser.instagram ?? '',
       });
-      if (useDb && userId && activeTeamId) {
-        void syncMemberProfileInDb(activeTeamId, userId, {
+      if (userId && activeTeamId) {
+        await syncMemberProfileInDb(activeTeamId, userId, {
           nick: nextUser.name,
           avatar_url: nextUser.avatar,
           bio: nextUser.bio ?? '',
           instagram: nextUser.instagram ?? '',
-        }).catch((err) => console.error('[BandCrew] syncMemberProfile failed', err));
+        });
       }
     }
   };
@@ -2057,6 +2140,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deleteComment,
     toggleCommentLike,
     addEvent,
+    deleteEvent,
     addSession,
     addTeamPracticeSong,
     updatePracticeSession,

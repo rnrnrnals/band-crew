@@ -42,7 +42,7 @@ export function UserProfileEditPage() {
     setError('');
     try {
       const publishedAvatar = await ensurePublishedImageUrl(avatar, 'profiles', user.id);
-      updateUserProfile({
+      await updateUserProfile({
         name: trimmed,
         avatar: publishedAvatar,
         bio,

@@ -12,7 +12,7 @@ import './SchedulePage.css';
 
 export function SchedulePage() {
 
-  const { events, activeTeam, addEvent, canManageActiveTeam } = useApp();
+  const { events, activeTeam, addEvent, deleteEvent, canManageActiveTeam } = useApp();
 
   const [title, setTitle] = useState('');
 
@@ -209,6 +209,17 @@ export function SchedulePage() {
                 />
               ) : null}
             </div>
+
+            {canManageActiveTeam ? (
+              <button
+                type="button"
+                className="event-delete"
+                onClick={() => void deleteEvent(e.id)}
+                title="일정 삭제"
+              >
+                삭제
+              </button>
+            ) : null}
           </div>
           );
         })}
