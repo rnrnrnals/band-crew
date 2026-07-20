@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { BandTeam, TeamMember } from '../../types';
 import { POSITION_LABELS } from '../../mock/positions';
-import { getMemberAvatar, sortMembersWithLeaderFirst } from '../../mock/memberUtils';
+import { getMemberAvatar, getMemberRoleLabel, sortMembersWithLeaderFirst } from '../../mock/memberUtils';
 import { MemberProfileSheet } from './MemberProfileSheet';
 import './FollowListSheet.css';
 import './MemberListSheet.css';
@@ -46,12 +46,21 @@ export function MemberListSheet({ team, onClose }: MemberListSheetProps) {
             <li key={m.id}>
               <button
                 type="button"
-                className={`member-sheet-row${m.isLeader ? ' member-sheet-row--leader' : ''}`}
+                className={`member-sheet-row${
+                  m.isLeader
+                    ? ' member-sheet-row--leader'
+                    : m.isCoLeader
+                      ? ' member-sheet-row--coleader'
+                      : ''
+                }`}
                 onClick={() => setSelectedMember(m)}
               >
                 <img src={getMemberAvatar(m)} alt="" className="member-sheet-avatar" />
                 <div>
-                  <strong>{m.nick}</strong>
+                  <strong>
+                    {m.nick}
+                    {getMemberRoleLabel(m) ? ` · ${getMemberRoleLabel(m)}` : ''}
+                  </strong>
                   <span>{POSITION_LABELS[m.position]}</span>
                 </div>
               </button>

@@ -1,5 +1,6 @@
 import type { StoryImageTransform, StoryTextOverlay } from './storyGestures';
 import type { Story } from '../types';
+import { canvasToImageDataUrl } from './imageOutput';
 
 export const STORY_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -138,5 +139,5 @@ export async function renderStoryComposite(
     drawTextOverlay(ctx, width, height, textOverlay);
   }
 
-  return canvas.toDataURL('image/jpeg', 0.92);
+  return canvasToImageDataUrl(canvas, 0.92);
 }

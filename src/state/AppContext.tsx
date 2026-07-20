@@ -15,6 +15,7 @@ import {
   INITIAL_EVENTS,
   INITIAL_POSTS,
   INITIAL_SESSIONS,
+  INITIAL_TEAM_PRACTICE_SONGS,
   INITIAL_STORIES,
   INITIAL_TEAM_AUDIO,
   INITIAL_TEAM_FOLLOWERS,
@@ -29,20 +30,28 @@ import type {
   PositionId,
   Post,
   PracticeSessionMeta,
+  TeamMember,
+  TeamPracticeSong,
   ScheduleEvent,
   SendChatPayload,
   Story,
   TeamAudioTrack,
   TeamHighlight,
-  TeamMember,
   PostComment,
 } from '../types';
 import { filterActiveStories } from '../utils/storyUtils';
 import { createRandomInviteCode, isInviteCodeActive } from '../utils/inviteUtils';
 import { getCrossTeamThreadId } from '../utils/chatUtils';
 import { deleteSessionTracks } from '../utils/practiceStorage';
+import {
+  loadTeamPracticeSongsCache,
+  mergeTeamPracticeSongs,
+  saveTeamPracticeSongsCache,
+} from '../utils/teamPracticeSongsCache';
+import { normalizeTeamBio } from '../utils/teamBio';
+import { normalizeInstagramUsername } from '../utils/teamInstagram';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { findCurrentMember } from '../mock/memberUtils';
+import { findCurrentMember, isCurrentMember, isTeamLeader, canManageTeam as memberCanManageTeam } from '../mock/memberUtils';
 import { bootstrapUserData, type BootstrapData } from '../services/bootstrapService';
 import {
   createAudioCommentInDb,
@@ -60,7 +69,14 @@ import {
   updateHighlightInDb,
 } from '../services/highlightsService';
 import { createChatMessageInDb, subscribeChatMessages } from '../services/chatService';
-import { createPracticeSessionInDb, deletePracticeSessionInDb } from '../services/practiceService';
+import { createPracticeSessionInDb, deletePracticeSessionInDb, updatePracticeSessionInDb } from '../services/practiceService';
+import {
+  createTeamPracticeSongInDb,
+  deleteTeamPracticeSongInDb,
+  fetchTeamPracticeSongsForTeamIds,
+  isMissingTeamPracticeSongsTable,
+  promoteTeamPracticeSongInDb,
+} from '../services/teamPracticeSongService';
 import { createScheduleEventInDb } from '../services/scheduleService';
 import { createStoryInDb } from '../services/storiesService';
 import {
@@ -78,12 +94,16 @@ import {
 } from '../services/postsService';
 import {
   createTeamInDb,
+  fetchMyTeams,
   fetchTeamById,
   generateInviteCodeInDb,
   joinTeamInDb,
   leaveTeamInDb,
+  searchTeamsByName,
   setActiveTeamInDb,
+  setTeamCoLeaderInDb,
   syncMemberProfileInDb,
+  transferTeamLeadershipInDb,
   updateMemberPositionInDb,
   updateTeamProfileInDb,
 } from '../services/teamsService';
@@ -101,6 +121,7 @@ interface Persisted {
   posts: Post[];
   events: ScheduleEvent[];
   sessions: PracticeSessionMeta[];
+  teamPracticeSongs: TeamPracticeSong[];
   stories: Story[];
   highlights: TeamHighlight[];
   teamAudios: TeamAudioTrack[];
@@ -116,6 +137,7 @@ interface AppState {
   posts: Post[];
   events: ScheduleEvent[];
   sessions: PracticeSessionMeta[];
+  teamPracticeSongs: TeamPracticeSong[];
   stories: Story[];
   highlights: TeamHighlight[];
   teamAudios: TeamAudioTrack[];
@@ -123,6 +145,11 @@ interface AppState {
   activeTeam: BandTeam | null;
   dataLoading: boolean;
   dataReady: boolean;
+  isActiveTeamLeader: boolean;
+  canManageActiveTeam: boolean;
+  canManageTeam: (teamId: string) => boolean;
+  transferTeamLeadership: (memberId: string) => Promise<{ ok: boolean; message: string }>;
+  setTeamCoLeader: (memberId: string | null) => Promise<{ ok: boolean; message: string }>;
   refreshAppData: () => Promise<void>;
   loadTeam: (teamId: string) => Promise<BandTeam | undefined>;
   createTeam: (name: string, genre: string, nick: string, position: PositionId) => void;
@@ -147,17 +174,23 @@ interface AppState {
   deleteComment: (postId: string, commentId: string) => void;
   toggleCommentLike: (postId: string, commentId: string) => void;
   addEvent: (ev: Omit<ScheduleEvent, 'id'>) => void;
-  addSession: (title: string, bpm: number) => PracticeSessionMeta;
+  addSession: (title: string, bpm: number, teamId?: string) => PracticeSessionMeta;
+  addTeamPracticeSong: (title: string, teamId: string) => Promise<{ ok: boolean; message?: string }>;
+  updatePracticeSession: (sessionId: string, patch: { title?: string; bpm?: number }) => Promise<void>;
+  promoteTeamPracticeSong: (songId: string) => Promise<void>;
+  loadTeamPracticeSongs: (teamId: string) => Promise<void>;
   isOwnPracticeSession: (session: PracticeSessionMeta) => boolean;
+  isOwnTeamPracticeSong: (song: TeamPracticeSong) => boolean;
   deleteSession: (sessionId: string) => Promise<boolean>;
+  deleteTeamPracticeSong: (songId: string) => Promise<boolean>;
   sendChatMessage: (payload: SendChatPayload, options?: { peerTeamId?: string }) => void;
   addStory: (input: Omit<Story, 'id' | 'createdAt'>) => void;
   createHighlight: (teamId: string, title: string, storyIds: string[]) => void;
   updateHighlight: (highlightId: string, patch: { title?: string; storyIds?: string[] }) => void;
   appendStoriesToHighlight: (highlightId: string, storyIds: string[]) => void;
   deleteHighlight: (highlightId: string) => void;
-  updateTeamProfile: (teamId: string, patch: { cover?: string; bio?: string; genre?: string }) => void;
-  updateUserProfile: (patch: { name?: string; avatar?: string; bio?: string }) => void;
+  updateTeamProfile: (teamId: string, patch: { cover?: string; bio?: string; genre?: string; instagram?: string }) => void;
+  updateUserProfile: (patch: { name?: string; avatar?: string; bio?: string; instagram?: string }) => void;
   updateMyPosition: (position: PositionId) => void;
   generateTeamInviteCode: (teamId: string) => void;
   addTeamAudio: (input: Omit<TeamAudioTrack, 'id' | 'createdAt' | 'comments' | 'likes' | 'likedByMe'>) => void;
@@ -165,6 +198,7 @@ interface AppState {
   getTeam: (id: string) => BandTeam | undefined;
   getTeamFollowers: (teamId: string) => BandTeam[];
   getTeamFollowing: (teamId: string) => BandTeam[];
+  searchTeams: (query: string) => Promise<BandTeam[]>;
 }
 
 const AppContext = createContext<AppState | null>(null);
@@ -186,9 +220,7 @@ function resolveUserProfile(initial: Partial<Persisted>): AppUser {
   if (!activeId || !myIds.includes(activeId)) return base;
 
   const team = [...TEAMS, ...(initial.customTeams ?? [])].find((t) => t.id === activeId);
-  const member =
-    team?.members.find((m) => m.avatar === base.avatar) ??
-    team?.members.find((m) => m.isLeader && myIds.includes(activeId));
+  const member = team ? findCurrentMember(team, base) : undefined;
 
   if (member && member.nick !== base.name) {
     return { ...base, name: member.nick };
@@ -226,8 +258,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const initialUser = resolveUserProfile(initial);
   const [customTeams, setCustomTeams] = useState<BandTeam[]>(initial.customTeams ?? []);
   const [userProfile, setUserProfile] = useState<AppUser>(initialUser);
-  const [activeTeamId, setActiveTeamId] = useState<string | null>(initial.activeTeamId ?? null);
-  const [myTeamIds, setMyTeamIds] = useState<string[]>(initial.myTeamIds ?? []);
+  const [activeTeamId, setActiveTeamId] = useState<string | null>(
+    initial.activeTeamId ?? (useDb ? null : 't-demo'),
+  );
+  const [myTeamIds, setMyTeamIds] = useState<string[]>(
+    initial.myTeamIds?.length ? initial.myTeamIds : useDb ? [] : ['t-demo'],
+  );
   const [followingIds, setFollowingIds] = useState<string[]>(
     initial.followingIds ?? (useDb ? [] : ['t-night', 't-garage', 't-soft']),
   );
@@ -248,6 +284,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<PracticeSessionMeta[]>(
     initial.sessions ?? (useDb ? [] : INITIAL_SESSIONS),
   );
+  const [teamPracticeSongs, setTeamPracticeSongs] = useState<TeamPracticeSong[]>(() => {
+    if (initial.teamPracticeSongs?.length) return initial.teamPracticeSongs;
+    if (useDb) {
+      return mergeTeamPracticeSongs([], loadTeamPracticeSongsCache());
+    }
+    return INITIAL_TEAM_PRACTICE_SONGS;
+  });
   const ownSessionIdsRef = useRef<Set<string>>(new Set());
   const [stories, setStories] = useState<Story[]>(() =>
     useDb ? [] : filterActiveStories(initial.stories ?? INITIAL_STORIES),
@@ -276,12 +319,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         name: authProfile.name,
         avatar: authProfile.avatar,
         bio: authProfile.bio,
+        instagram: authProfile.instagram,
       };
       if (
         prev.id === next.id &&
         prev.name === next.name &&
         prev.avatar === next.avatar &&
-        prev.bio === next.bio
+        prev.bio === next.bio &&
+        prev.instagram === next.instagram
       ) {
         return prev;
       }
@@ -306,9 +351,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
     }
     setSessions(data.sessions);
+    setTeamPracticeSongs((prev) => {
+      const merged = mergeTeamPracticeSongs(
+        data.teamPracticeSongs,
+        prev,
+        loadTeamPracticeSongsCache(),
+      );
+      if (useDb) saveTeamPracticeSongsCache(merged);
+      return merged;
+    });
     setChatMessages(data.chatMessages);
     setDataReady(true);
-  }, [userId]);
+  }, [userId, useDb]);
 
   const refreshAppData = useCallback(async () => {
     if (!useDb || !userId) return;
@@ -338,9 +392,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         applyBootstrapData(data);
       })
-      .catch((err) => {
+      .catch(async (err) => {
         console.error('[BandCrew] bootstrap failed', err);
-        if (!cancelled) setDataReady(true);
+        if (cancelled) return;
+        try {
+          const minimal = await fetchMyTeams(userId);
+          setCustomTeams(minimal.teams);
+          setMyTeamIds(minimal.myTeamIds);
+          setActiveTeamId(minimal.activeTeamId);
+        } catch (minimalErr) {
+          console.error('[BandCrew] minimal team load failed', minimalErr);
+        }
+        setDataReady(true);
       })
       .finally(() => {
         if (!cancelled) setDataLoading(false);
@@ -396,6 +459,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         posts: initial.posts ?? INITIAL_POSTS,
         events: initial.events ?? INITIAL_EVENTS,
         sessions: initial.sessions ?? INITIAL_SESSIONS,
+        teamPracticeSongs: initial.teamPracticeSongs ?? INITIAL_TEAM_PRACTICE_SONGS,
         stories: filterActiveStories(initial.stories ?? INITIAL_STORIES),
         highlights: initial.highlights ?? [],
         teamAudios: normalizeTeamAudios(initial.teamAudios ?? INITIAL_TEAM_AUDIO),
@@ -415,6 +479,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return Array.from(map.values());
   }, [customTeams, useDb]);
 
+  const canManageTeam = useCallback(
+    (teamId: string) => {
+      if (!myTeamIds.includes(teamId)) return false;
+      const team = teams.find((t) => t.id === teamId);
+      if (!team) return false;
+      return memberCanManageTeam(team, userProfile);
+    },
+    [myTeamIds, teams, userProfile],
+  );
+
+  const isActiveTeamLeader = useMemo(() => {
+    if (!activeTeamId) return false;
+    const team = teams.find((t) => t.id === activeTeamId);
+    if (!team) return false;
+    return isTeamLeader(team, userProfile);
+  }, [activeTeamId, teams, userProfile]);
+
+  const canManageActiveTeam = useMemo(
+    () => (activeTeamId ? canManageTeam(activeTeamId) : false),
+    [activeTeamId, canManageTeam],
+  );
+
   const persist = useCallback(
     (patch: Partial<Persisted>) => {
       if (useDb) return;
@@ -429,6 +515,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         posts,
         events,
         sessions,
+        teamPracticeSongs,
         stories,
         highlights,
         teamAudios,
@@ -437,7 +524,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       savePersisted(next);
     },
-    [activeTeamId, myTeamIds, followingIds, followerIdsByTeam, customTeams, userProfile, posts, events, sessions, stories, highlights, teamAudios, chatMessages, useDb],
+    [activeTeamId, myTeamIds, followingIds, followerIdsByTeam, customTeams, userProfile, posts, events, sessions, teamPracticeSongs, stories, highlights, teamAudios, chatMessages, useDb],
   );
 
   useEffect(() => {
@@ -483,6 +570,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [teams, useDb],
   );
 
+  const searchTeams = useCallback(
+    async (query: string): Promise<BandTeam[]> => {
+      const trimmed = query.trim();
+      if (!trimmed) return [];
+
+      if (useDb) {
+        try {
+          const found = await searchTeamsByName(trimmed);
+          found.forEach((team) => mergeTeam(team));
+          return found;
+        } catch (err) {
+          console.warn('[BandCrew] searchTeams failed', err);
+          return [];
+        }
+      }
+
+      const needle = trimmed.toLowerCase();
+      return teams.filter((team) => team.name.toLowerCase().includes(needle)).slice(0, 12);
+    },
+    [teams, useDb],
+  );
+
   const cloneTeamForEdit = (teamId: string, source: BandTeam[]): BandTeam[] => {
     const existing = source.find((t) => t.id === teamId);
     if (existing) return source;
@@ -495,10 +604,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const syncCurrentMember = (
     teamsList: BandTeam[],
     teamId: string | null,
-    prevAvatar: string,
     nextName: string,
     nextAvatar: string,
     nextBio?: string,
+    nextInstagram?: string,
   ) => {
     if (!teamId) return teamsList;
     return teamsList.map((team) => {
@@ -506,17 +615,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return {
         ...team,
         members: team.members.map((member) => {
-          const isCurrent =
-            member.userId === userProfile.id ||
-            member.id === userProfile.id ||
-            member.avatar === prevAvatar ||
-            (member.avatar === undefined && member.isLeader);
-          if (!isCurrent) return member;
+          if (!isCurrentMember(member, userProfile)) return member;
           return {
             ...member,
+            userId: member.userId ?? userProfile.id,
             nick: nextName,
             avatar: nextAvatar,
             bio: nextBio !== undefined ? nextBio : member.bio,
+            instagram:
+              nextInstagram !== undefined ? nextInstagram || undefined : member.instagram,
           };
         }),
       };
@@ -740,6 +847,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addPost = (input: Omit<Post, 'id' | 'likes' | 'comments' | 'createdAt' | 'likedByMe'>) => {
+    if (!canManageTeam(input.teamId)) return;
     if (useDb && userId) {
       void createPostInDb(userId, {
         teamId: input.teamId,
@@ -767,7 +875,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deletePost = (postId: string) => {
     const post = posts.find((p) => p.id === postId);
-    if (!post || !myTeamIds.includes(post.teamId)) return;
+    if (!post || !canManageTeam(post.teamId)) return;
     const next = posts.filter((p) => p.id !== postId);
     setPosts(next);
     if (!useDb) persist({ posts: next });
@@ -1069,7 +1177,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addEvent = (ev: Omit<ScheduleEvent, 'id'>) => {
-    if (!myTeamIds.includes(ev.teamId)) return;
+    if (!canManageTeam(ev.teamId)) return;
     if (useDb) {
       void createScheduleEventInDb(ev)
         .then((event) => setEvents((prev) => [...prev, event]))
@@ -1091,23 +1199,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [useDb, userId],
   );
 
-  const addSession = (title: string, bpm: number) => {
-    const teamId = activeTeamId || 't-demo';
-    if (useDb && userId && activeTeamId) {
+  const isOwnTeamPracticeSong = useCallback(
+    (song: TeamPracticeSong) => {
+      if (!useDb) return true;
+      if (!userId) return false;
+      if (song.authorUserId === userId) return true;
+      return false;
+    },
+    [useDb, userId],
+  );
+
+  const addSession = (title: string, bpm: number, teamId?: string) => {
+    const resolvedTeamId = teamId ?? activeTeamId ?? 't-demo';
+    if (useDb && userId && myTeamIds.includes(resolvedTeamId)) {
       const sessionId = crypto.randomUUID();
       ownSessionIdsRef.current.add(sessionId);
       const optimistic: PracticeSessionMeta = {
         id: sessionId,
-        teamId: activeTeamId,
+        teamId: resolvedTeamId,
         title,
         bpm,
         updatedAt: new Date().toISOString(),
         authorUserId: userId,
       };
       setSessions((prev) => [optimistic, ...prev]);
-      void createPracticeSessionInDb(activeTeamId, title, bpm, sessionId, userId)
+      void createPracticeSessionInDb(resolvedTeamId, title, bpm, sessionId, userId)
         .then((session) =>
-          setSessions((prev) => prev.map((s) => (s.id === sessionId ? session : s))),
+          setSessions((prev) =>
+            prev.map((existing) => (existing.id === sessionId ? session : existing)),
+          ),
         )
         .catch((err) => {
           console.error('[BandCrew] addSession failed', err);
@@ -1118,7 +1238,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     const session: PracticeSessionMeta = {
       id: `ps-${Date.now()}`,
-      teamId,
+      teamId: resolvedTeamId,
       title,
       bpm,
       updatedAt: new Date().toISOString(),
@@ -1130,6 +1250,222 @@ export function AppProvider({ children }: { children: ReactNode }) {
     persist({ sessions: next });
     return session;
   };
+
+  const addTeamPracticeSong = async (
+    title: string,
+    teamId: string,
+  ): Promise<{ ok: boolean; message?: string }> => {
+    if (!canManageTeam(teamId)) {
+      return { ok: false, message: '팀 리더만 연습곡을 설정할 수 있어요.' };
+    }
+    const applyLocal = (updater: (prev: TeamPracticeSong[]) => TeamPracticeSong[]) => {
+      setTeamPracticeSongs((prev) => {
+        const next = updater(prev);
+        if (useDb) saveTeamPracticeSongsCache(next);
+        else persist({ teamPracticeSongs: next });
+        return next;
+      });
+    };
+
+    if (useDb && userId && myTeamIds.includes(teamId)) {
+      const songId = crypto.randomUUID();
+      const optimistic: TeamPracticeSong = {
+        id: songId,
+        teamId,
+        title,
+        updatedAt: new Date().toISOString(),
+        authorUserId: userId,
+        isCurrent: true,
+      };
+      applyLocal((prev) => [
+        optimistic,
+        ...prev.map((song) =>
+          song.teamId === teamId ? { ...song, isCurrent: false } : song,
+        ),
+      ]);
+
+      try {
+        const song = await createTeamPracticeSongInDb(teamId, title, songId, userId);
+        applyLocal((prev) => prev.map((existing) => (existing.id === songId ? song : existing)));
+        return { ok: true };
+      } catch (err) {
+        console.error('[BandCrew] addTeamPracticeSong failed', err);
+        if (isMissingTeamPracticeSongsTable(err)) {
+          return {
+            ok: true,
+            message: '연습곡을 기기에 저장했어요. DB 마이그레이션 후 다른 기기와 동기화돼요.',
+          };
+        }
+        applyLocal((prev) => prev.filter((song) => song.id !== songId));
+        return {
+          ok: false,
+          message: err instanceof Error ? err.message : '연습곡을 저장하지 못했어요.',
+        };
+      }
+    }
+
+    const song: TeamPracticeSong = {
+      id: `tps-${Date.now()}`,
+      teamId,
+      title,
+      updatedAt: new Date().toISOString(),
+      authorUserId: userId || userProfile.id,
+      isCurrent: true,
+    };
+    applyLocal((prev) => [
+      song,
+      ...prev.map((existing) =>
+        existing.teamId === teamId ? { ...existing, isCurrent: false } : existing,
+      ),
+    ]);
+    return { ok: true };
+  };
+
+  const loadTeamPracticeSongs = useCallback(
+    async (teamId: string) => {
+      if (!useDb) return;
+      try {
+        const rows = await fetchTeamPracticeSongsForTeamIds([teamId]);
+        setTeamPracticeSongs((prev) => {
+          const otherTeams = prev.filter((song) => song.teamId !== teamId);
+          const localForTeam = prev.filter((song) => song.teamId === teamId);
+          const cachedForTeam = loadTeamPracticeSongsCache().filter((song) => song.teamId === teamId);
+          const mergedForTeam = mergeTeamPracticeSongs(rows, localForTeam, cachedForTeam);
+          const next = [...otherTeams, ...mergedForTeam];
+          saveTeamPracticeSongsCache(next);
+          return next;
+        });
+      } catch (err) {
+        console.warn('[BandCrew] loadTeamPracticeSongs failed', err);
+      }
+    },
+    [useDb],
+  );
+
+  const updatePracticeSession = useCallback(
+    async (sessionId: string, patch: { title?: string; bpm?: number }) => {
+      const target = sessions.find((session) => session.id === sessionId);
+      if (!target || !myTeamIds.includes(target.teamId)) {
+        throw new Error('수정 권한이 없어요.');
+      }
+
+      const title = patch.title?.trim() || target.title;
+      const bpm = patch.bpm ?? target.bpm;
+      const optimistic: PracticeSessionMeta = {
+        ...target,
+        title,
+        bpm,
+        updatedAt: new Date().toISOString(),
+      };
+
+      setSessions((prev) => prev.map((session) => (session.id === sessionId ? optimistic : session)));
+
+      if (useDb) {
+        const updated = await updatePracticeSessionInDb(sessionId, { title, bpm });
+        setSessions((prev) => prev.map((session) => (session.id === sessionId ? updated : session)));
+        return;
+      }
+
+      setSessions((prev) => {
+        const next = prev.map((session) => (session.id === sessionId ? optimistic : session));
+        persist({ sessions: next });
+        return next;
+      });
+    },
+    [sessions, myTeamIds, useDb, persist],
+  );
+
+  const promoteTeamPracticeSong = useCallback(
+    async (songId: string) => {
+      const target = teamPracticeSongs.find((song) => song.id === songId);
+      if (!target || !canManageTeam(target.teamId)) {
+        throw new Error('팀 리더만 변경할 수 있어요.');
+      }
+
+      const optimistic: TeamPracticeSong = {
+        ...target,
+        updatedAt: new Date().toISOString(),
+        isCurrent: true,
+      };
+
+      if (useDb) {
+        setTeamPracticeSongs((prev) => {
+          const next = prev.map((song) => {
+            if (song.teamId !== target.teamId) return song;
+            if (song.id === songId) return optimistic;
+            return { ...song, isCurrent: false };
+          });
+          saveTeamPracticeSongsCache(next);
+          return next;
+        });
+        try {
+          const updated = await promoteTeamPracticeSongInDb(songId, target.teamId);
+          setTeamPracticeSongs((prev) => {
+            const next = prev.map((song) => {
+              if (song.teamId !== target.teamId) return song;
+              if (song.id === songId) return updated;
+              return { ...song, isCurrent: false };
+            });
+            saveTeamPracticeSongsCache(next);
+            return next;
+          });
+        } catch (err) {
+          if (!isMissingTeamPracticeSongsTable(err)) throw err;
+        }
+        return;
+      }
+
+      setTeamPracticeSongs((prev) => {
+        const next = prev.map((song) => {
+          if (song.teamId !== target.teamId) return song;
+          if (song.id === songId) return optimistic;
+          return { ...song, isCurrent: false };
+        });
+        persist({ teamPracticeSongs: next });
+        return next;
+      });
+    },
+    [teamPracticeSongs, canManageTeam, useDb, persist],
+  );
+
+  const deleteTeamPracticeSong = useCallback(
+    (songId: string): Promise<boolean> => {
+      const target = teamPracticeSongs.find((song) => song.id === songId);
+      if (!target || !canManageTeam(target.teamId)) return Promise.resolve(false);
+      if (!confirm(`"${target.title}" 연습곡을 삭제할까요?`)) {
+        return Promise.resolve(false);
+      }
+
+      const removeLocal = () => {
+        setTeamPracticeSongs((prev) => {
+          const next = prev.filter((song) => song.id !== songId);
+          if (useDb) saveTeamPracticeSongsCache(next);
+          else persist({ teamPracticeSongs: next });
+          return next;
+        });
+      };
+
+      if (useDb && userId) {
+        return deleteTeamPracticeSongInDb(songId)
+          .then(() => {
+            removeLocal();
+            return true;
+          })
+          .catch((err) => {
+            console.error('[BandCrew] deleteTeamPracticeSong failed', err);
+            if (isMissingTeamPracticeSongsTable(err)) {
+              removeLocal();
+              return true;
+            }
+            return false;
+          });
+      }
+
+      removeLocal();
+      return Promise.resolve(true);
+    },
+    [teamPracticeSongs, canManageTeam, useDb, userId, persist],
+  );
 
   const deleteSession = useCallback(
     (sessionId: string): Promise<boolean> => {
@@ -1173,7 +1509,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (payload.kind === 'text' && !trimmedText) return;
     if (payload.kind !== 'text' && !payload.mediaUrl) return;
 
-    const member = activeTeam?.members.find((m) => m.avatar === userProfile.avatar);
+    const member = activeTeam ? findCurrentMember(activeTeam, userProfile) : undefined;
     const authorNick = member?.nick ?? userProfile.name;
     const authorAvatar = member?.avatar ?? userProfile.avatar;
     const chatThreadId = options?.peerTeamId
@@ -1218,7 +1554,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addStory = (input: Omit<Story, 'id' | 'createdAt'>) => {
-    if (!myTeamIds.includes(input.teamId)) return;
+    if (!canManageTeam(input.teamId)) return;
     if (useDb) {
       void createStoryInDb(input)
         .then((story) => setStories((prev) => [...prev, story]))
@@ -1248,7 +1584,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const createHighlight = (teamId: string, title: string, storyIds: string[]) => {
-    if (!myTeamIds.includes(teamId)) return;
+    if (!canManageTeam(teamId)) return;
     const trimmedTitle = title.trim();
     if (!trimmedTitle || storyIds.length === 0) return;
 
@@ -1280,7 +1616,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     patch: { title?: string; storyIds?: string[] },
   ) => {
     const target = highlights.find((h) => h.id === highlightId);
-    if (!target || !myTeamIds.includes(target.teamId)) return;
+    if (!target || !canManageTeam(target.teamId)) return;
 
     if (useDb) {
       void updateHighlightInDb(
@@ -1318,7 +1654,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const appendStoriesToHighlight = (highlightId: string, storyIds: string[]) => {
     const target = highlights.find((h) => h.id === highlightId);
-    if (!target || !myTeamIds.includes(target.teamId) || storyIds.length === 0) return;
+    if (!target || !canManageTeam(target.teamId) || storyIds.length === 0) return;
 
     if (useDb) {
       const existingSourceIds = target.items
@@ -1352,7 +1688,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteHighlight = (highlightId: string) => {
     const target = highlights.find((h) => h.id === highlightId);
-    if (!target || !myTeamIds.includes(target.teamId)) return;
+    if (!target || !canManageTeam(target.teamId)) return;
     const next = highlights.filter((h) => h.id !== highlightId);
     setHighlights(next);
     if (!useDb) persist({ highlights: next });
@@ -1365,24 +1701,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateTeamProfile = (
     teamId: string,
-    patch: { cover?: string; bio?: string; genre?: string },
+    patch: { cover?: string; bio?: string; genre?: string; instagram?: string },
   ) => {
-    if (!myTeamIds.includes(teamId)) return;
+    if (!canManageTeam(teamId)) return;
+    const normalizedPatch = {
+      ...patch,
+      bio: patch.bio !== undefined ? normalizeTeamBio(patch.bio) : undefined,
+      instagram:
+        patch.instagram !== undefined ? normalizeInstagramUsername(patch.instagram) : undefined,
+    };
     const seeded = cloneTeamForEdit(teamId, customTeams);
     const nextCustom = seeded.map((team) =>
       team.id === teamId
         ? {
             ...team,
-            cover: patch.cover ?? team.cover,
-            bio: patch.bio ?? team.bio,
-            genre: patch.genre?.trim() || team.genre,
+            cover: normalizedPatch.cover ?? team.cover,
+            bio: normalizedPatch.bio ?? team.bio,
+            genre: normalizedPatch.genre?.trim() || team.genre,
+            instagram:
+              normalizedPatch.instagram !== undefined
+                ? normalizedPatch.instagram || undefined
+                : team.instagram,
           }
         : team,
     );
     setCustomTeams(nextCustom);
     if (!useDb) persist({ customTeams: nextCustom });
     if (useDb) {
-      void updateTeamProfileInDb(teamId, patch)
+      void updateTeamProfileInDb(teamId, normalizedPatch)
         .then(() => fetchTeamById(teamId))
         .then((team) => {
           if (team) mergeTeam(team);
@@ -1391,13 +1737,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateUserProfile = (patch: { name?: string; avatar?: string; bio?: string }) => {
-    const prevAvatar = userProfile.avatar;
+  const updateUserProfile = (patch: {
+    name?: string;
+    avatar?: string;
+    bio?: string;
+    instagram?: string;
+  }) => {
+    const nextInstagram =
+      patch.instagram !== undefined ? normalizeInstagramUsername(patch.instagram) : undefined;
     const nextUser: AppUser = {
       ...userProfile,
       name: patch.name?.trim() || userProfile.name,
       avatar: patch.avatar ?? userProfile.avatar,
       bio: patch.bio !== undefined ? patch.bio.trim() : userProfile.bio,
+      instagram:
+        nextInstagram !== undefined ? nextInstagram || undefined : userProfile.instagram,
     };
     let nextCustom = customTeams;
     if (activeTeamId) {
@@ -1405,10 +1759,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       nextCustom = syncCurrentMember(
         nextCustom,
         activeTeamId,
-        prevAvatar,
         nextUser.name,
         nextUser.avatar,
         nextUser.bio,
+        nextUser.instagram,
       );
     }
     setUserProfile(nextUser);
@@ -1419,12 +1773,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         name: nextUser.name,
         avatar: nextUser.avatar,
         bio: nextUser.bio,
+        instagram: nextUser.instagram ?? '',
       });
       if (useDb && userId && activeTeamId) {
         void syncMemberProfileInDb(activeTeamId, userId, {
           nick: nextUser.name,
           avatar_url: nextUser.avatar,
           bio: nextUser.bio ?? '',
+          instagram: nextUser.instagram ?? '',
         }).catch((err) => console.error('[BandCrew] syncMemberProfile failed', err));
       }
     }
@@ -1438,12 +1794,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return {
         ...team,
         members: team.members.map((member) => {
-          const isCurrent =
-            member.userId === userProfile.id ||
-            member.id === userProfile.id ||
-            member.avatar === userProfile.avatar ||
-            member.nick === userProfile.name;
-          if (!isCurrent) return member;
+          if (!isCurrentMember(member, userProfile)) return member;
           return { ...member, position };
         }),
       };
@@ -1461,7 +1812,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addTeamAudio = (input: Omit<TeamAudioTrack, 'id' | 'createdAt' | 'comments' | 'likes' | 'likedByMe'>) => {
-    if (!myTeamIds.includes(input.teamId)) return;
+    if (!canManageTeam(input.teamId)) return;
     if (useDb && userId) {
       void createAudioTrackInDb(userId, input)
         .then((track) => setTeamAudios((prev) => [track, ...prev]))
@@ -1483,7 +1834,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteTeamAudio = (trackId: string) => {
     const track = teamAudios.find((t) => t.id === trackId);
-    if (!track || !myTeamIds.includes(track.teamId)) return;
+    if (!track || !canManageTeam(track.teamId)) return;
     const next = teamAudios.filter((t) => t.id !== trackId);
     setTeamAudios(next);
     if (!useDb) persist({ teamAudios: next });
@@ -1495,7 +1846,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const generateTeamInviteCode = (teamId: string) => {
-    if (!myTeamIds.includes(teamId)) return;
+    if (!canManageTeam(teamId)) return;
     if (useDb) {
       void generateInviteCodeInDb(teamId)
         .then(({ code, createdAt }) => {
@@ -1521,6 +1872,105 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setCustomTeams(nextCustom);
     persist({ customTeams: nextCustom });
   };
+
+  const replaceTeamMembers = useCallback(
+    (teamId: string, nextMembers: TeamMember[]) => {
+      const seeded = cloneTeamForEdit(teamId, customTeams);
+      const nextCustom = seeded.map((team) =>
+        team.id === teamId ? { ...team, members: nextMembers } : team,
+      );
+      setCustomTeams(nextCustom);
+      if (!useDb) persist({ customTeams: nextCustom });
+      return nextCustom.find((team) => team.id === teamId);
+    },
+    [customTeams, persist, useDb],
+  );
+
+  const transferTeamLeadership = useCallback(
+    async (memberId: string): Promise<{ ok: boolean; message: string }> => {
+      if (!activeTeamId) return { ok: false, message: '팀이 없어요.' };
+      const team = teams.find((t) => t.id === activeTeamId);
+      if (!team || !isTeamLeader(team, userProfile)) {
+        return { ok: false, message: '리더만 넘길 수 있어요.' };
+      }
+      const target = team.members.find((member) => member.id === memberId);
+      if (!target) return { ok: false, message: '멤버를 찾을 수 없어요.' };
+      if (target.isLeader) return { ok: false, message: '이미 리더예요.' };
+
+      if (useDb && userId) {
+        try {
+          const updated = await transferTeamLeadershipInDb(activeTeamId, userId, memberId);
+          mergeTeam(updated);
+          return { ok: true, message: `${target.nick}에게 리더를 넘겼어요.` };
+        } catch (err) {
+          return {
+            ok: false,
+            message: err instanceof Error ? err.message : '리더를 넘기지 못했어요.',
+          };
+        }
+      }
+
+      const me = findCurrentMember(team, userProfile);
+      const nextMembers = team.members.map((member) => {
+        if (member.id === memberId) {
+          return { ...member, isLeader: true, isCoLeader: false };
+        }
+        if (member.id === me?.id) {
+          return { ...member, isLeader: false };
+        }
+        return { ...member, isLeader: false };
+      });
+      replaceTeamMembers(activeTeamId, nextMembers);
+      return { ok: true, message: `${target.nick}에게 리더를 넘겼어요.` };
+    },
+    [activeTeamId, teams, userProfile, useDb, userId, replaceTeamMembers],
+  );
+
+  const setTeamCoLeader = useCallback(
+    async (memberId: string | null): Promise<{ ok: boolean; message: string }> => {
+      if (!activeTeamId) return { ok: false, message: '팀이 없어요.' };
+      const team = teams.find((t) => t.id === activeTeamId);
+      if (!team || !isTeamLeader(team, userProfile)) {
+        return { ok: false, message: '리더만 코리더를 지정할 수 있어요.' };
+      }
+
+      if (memberId) {
+        const target = team.members.find((member) => member.id === memberId);
+        if (!target) return { ok: false, message: '멤버를 찾을 수 없어요.' };
+        if (target.isLeader) return { ok: false, message: '리더는 코리더로 지정할 수 없어요.' };
+      }
+
+      if (useDb && userId) {
+        try {
+          const updated = await setTeamCoLeaderInDb(activeTeamId, userId, memberId);
+          mergeTeam(updated);
+          if (memberId) {
+            const nick = updated.members.find((member) => member.id === memberId)?.nick ?? '멤버';
+            return { ok: true, message: `${nick}을(를) 코리더로 지정했어요.` };
+          }
+          return { ok: true, message: '코리더를 해제했어요.' };
+        } catch (err) {
+          return {
+            ok: false,
+            message: err instanceof Error ? err.message : '코리더 설정에 실패했어요.',
+          };
+        }
+      }
+
+      const nextMembers = team.members.map((member) => {
+        if (member.isLeader) return { ...member, isCoLeader: false };
+        if (!memberId) return { ...member, isCoLeader: false };
+        return { ...member, isCoLeader: member.id === memberId };
+      });
+      replaceTeamMembers(activeTeamId, nextMembers);
+      if (memberId) {
+        const nick = team.members.find((member) => member.id === memberId)?.nick ?? '멤버';
+        return { ok: true, message: `${nick}을(를) 코리더로 지정했어요.` };
+      }
+      return { ok: true, message: '코리더를 해제했어요.' };
+    },
+    [activeTeamId, teams, userProfile, useDb, userId, replaceTeamMembers],
+  );
 
   const getTeam = (id: string) => teams.find((t) => t.id === id);
 
@@ -1554,6 +2004,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     posts,
     events,
     sessions,
+    teamPracticeSongs,
     stories: activeStories,
     highlights,
     teamAudios,
@@ -1561,6 +2012,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     activeTeam,
     dataLoading,
     dataReady,
+    isActiveTeamLeader,
+    canManageActiveTeam,
+    canManageTeam,
+    transferTeamLeadership,
+    setTeamCoLeader,
     refreshAppData,
     loadTeam,
     createTeam,
@@ -1582,8 +2038,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toggleCommentLike,
     addEvent,
     addSession,
+    addTeamPracticeSong,
+    updatePracticeSession,
+    promoteTeamPracticeSong,
+    loadTeamPracticeSongs,
     isOwnPracticeSession,
+    isOwnTeamPracticeSong,
     deleteSession,
+    deleteTeamPracticeSong,
     sendChatMessage,
     addStory,
     createHighlight,
@@ -1599,6 +2061,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     getTeam,
     getTeamFollowers,
     getTeamFollowing,
+    searchTeams,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

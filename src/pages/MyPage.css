@@ -88,6 +88,22 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  padding: 6px 10px 6px 6px;
+  border-radius: 999px;
+}
+
+.members .chip-me {
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface);
+}
+
+.members .chip:active {
+  opacity: 0.85;
 }
 
 .members .chip-leader,
@@ -95,18 +111,9 @@
   color: var(--brand);
 }
 
-.chip-me {
-  border: 1px solid var(--hairline-strong);
-  background: var(--surface);
-  border-radius: 999px;
-  padding: 6px 10px 6px 6px;
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-}
-
-.chip-me:active {
-  opacity: 0.85;
+.members .chip-coleader,
+.members .chip-me.chip-coleader {
+  color: #7c6cff;
 }
 
 .member-chip-avatar {

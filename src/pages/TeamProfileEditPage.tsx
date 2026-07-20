@@ -2,7 +2,11 @@ import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SquareImageCropSheet } from '../features/media/SquareImageCropSheet';
 import { useApp } from '../state/AppContext';
+import { LeaderGate } from '../features/team/LeaderGate';
+import { isLikelyImageFile } from '../utils/prepareProfileImageFile';
 import { ensurePublishedImageUrl } from '../utils/mediaUpload';
+import { clampTeamBio, normalizeTeamBio, TEAM_BIO_MAX_CHARS, TEAM_BIO_MAX_LINES } from '../utils/teamBio';
+import { normalizeInstagramUsername } from '../utils/teamInstagram';
 import './MyPage.css';
 import './ProfileEditPage.css';
 
@@ -10,8 +14,9 @@ export function TeamProfileEditPage() {
   const { activeTeam, updateTeamProfile } = useApp();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [bio, setBio] = useState(activeTeam?.bio ?? '');
+  const [bio, setBio] = useState(() => clampTeamBio(activeTeam?.bio ?? ''));
   const [genre, setGenre] = useState(activeTeam?.genre ?? '');
+  const [instagram, setInstagram] = useState(activeTeam?.instagram ?? '');
   const [cover, setCover] = useState(activeTeam?.cover ?? '');
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [error, setError] = useState('');
@@ -21,7 +26,7 @@ export function TeamProfileEditPage() {
 
   const onCoverSelected = (file: File | undefined) => {
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
+    if (!isLikelyImageFile(file)) {
       setError('사진 파일만 선택할 수 있어요.');
       return;
     }
@@ -36,8 +41,9 @@ export function TeamProfileEditPage() {
       const publishedCover = await ensurePublishedImageUrl(cover, 'teams', activeTeam.id);
       updateTeamProfile(activeTeam.id, {
         cover: publishedCover,
-        bio: bio.trim() || activeTeam.bio,
+        bio: normalizeTeamBio(bio) || activeTeam.bio,
         genre: genre.trim() || activeTeam.genre,
+        instagram: normalizeInstagramUsername(instagram),
       });
       navigate('/my');
     } catch (err) {
@@ -47,12 +53,13 @@ export function TeamProfileEditPage() {
   };
 
   return (
+    <LeaderGate>
     <div className="page profile-edit-page">
       <Link to="/my" className="settings-back">
         ← 우리 팀 피드
       </Link>
       <h1 className="page-title">프로필 수정</h1>
-      <p className="page-sub">{activeTeam.name} 팀의 프로필 사진, 장르, 소개를 바꿀 수 있어요.</p>
+      <p className="page-sub">{activeTeam.name} 팀의 프로필 사진, 장르, 인스타그램, 소개를 바꿀 수 있어요.</p>
 
       <div className="profile-edit-cover">
         <img src={cover} alt="" />
@@ -62,7 +69,7 @@ export function TeamProfileEditPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
           className="profile-edit-file"
           onChange={(e) => {
             void onCoverSelected(e.target.files?.[0]);
@@ -82,14 +89,36 @@ export function TeamProfileEditPage() {
       </div>
 
       <div className="field">
-        <label>팀 소개</label>
-        <textarea
-          rows={5}
-          value={bio}
-          onChange={(e) => setBio(e.target.value)}
-          placeholder="팀 소개, 연습 일정, 음악 스타일…"
-          maxLength={200}
+        <label htmlFor="team-instagram">인스타그램</label>
+        <input
+          id="team-instagram"
+          value={instagram}
+          onChange={(e) => setInstagram(normalizeInstagramUsername(e.target.value))}
+          placeholder="band_crew"
+          maxLength={30}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
         />
+        <p className="profile-edit-hint">@ 없이 적어도 돼요. 피드에서 탭하면 인스타그램으로 이동해요.</p>
+      </div>
+
+      <div className="field">
+        <div className="profile-edit-field-head">
+          <label htmlFor="team-bio">팀 소개</label>
+          <span className="profile-edit-counter">
+            {bio.length}/{TEAM_BIO_MAX_CHARS}
+          </span>
+        </div>
+        <textarea
+          id="team-bio"
+          rows={TEAM_BIO_MAX_LINES}
+          value={bio}
+          onChange={(e) => setBio(clampTeamBio(e.target.value))}
+          placeholder="팀 소개, 연습 일정, 음악 스타일…"
+          maxLength={TEAM_BIO_MAX_CHARS}
+        />
+        <p className="profile-edit-hint">최대 {TEAM_BIO_MAX_LINES}줄 · {TEAM_BIO_MAX_CHARS}자</p>
       </div>
 
       {error && <p className="profile-edit-error">{error}</p>}
@@ -110,5 +139,6 @@ export function TeamProfileEditPage() {
         />
       ) : null}
     </div>
+    </LeaderGate>
   );
 }

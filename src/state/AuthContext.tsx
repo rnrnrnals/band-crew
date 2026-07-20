@@ -16,6 +16,7 @@ interface DbProfile {
   display_name: string;
   avatar_url: string;
   bio: string;
+  instagram?: string | null;
 }
 
 export interface AuthContextValue {
@@ -36,6 +37,7 @@ export interface AuthContextValue {
     name?: string;
     avatar?: string;
     bio?: string;
+    instagram?: string;
   }) => Promise<void>;
 }
 
@@ -49,6 +51,7 @@ function mapProfile(userId: string, row: DbProfile | null, fallbackEmail?: strin
       row?.avatar_url?.trim() ||
       'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&h=120&fit=crop',
     bio: row?.bio?.trim() || undefined,
+    instagram: row?.instagram?.trim() || undefined,
   };
 }
 
@@ -58,7 +61,7 @@ async function fetchDbProfile(userId: string): Promise<DbProfile | null> {
 
   const { data, error } = await supabase
     .from(DB_TABLES.profiles)
-    .select('display_name, avatar_url, bio')
+    .select('display_name, avatar_url, bio, instagram')
     .eq('id', userId)
     .maybeSingle();
 
@@ -181,7 +184,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadProfile, session?.user]);
 
   const updateRemoteProfile = useCallback(
-    async (patch: { name?: string; avatar?: string; bio?: string }) => {
+    async (patch: { name?: string; avatar?: string; bio?: string; instagram?: string }) => {
       if (!session?.user) return;
       const supabase = getSupabase();
       if (!supabase) return;
@@ -190,6 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (patch.name !== undefined) updates.display_name = patch.name.trim();
       if (patch.avatar !== undefined) updates.avatar_url = patch.avatar;
       if (patch.bio !== undefined) updates.bio = patch.bio.trim();
+      if (patch.instagram !== undefined) updates.instagram = patch.instagram;
 
       if (Object.keys(updates).length === 0) return;
 

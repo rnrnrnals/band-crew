@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../state/AppContext';
+import { LeaderGate } from '../features/team/LeaderGate';
 import {
   CHAT_MAX_IMAGE_BYTES,
   CHAT_MAX_VIDEO_BYTES,
@@ -135,6 +136,7 @@ export function UploadPage() {
   const accept = mediaType === 'image' ? 'image/*' : 'video/*';
 
   return (
+    <LeaderGate>
     <div className="page upload-page">
       <header className="upload-head">
         <Link to="/my" className="upload-back" aria-label="뒤로">
@@ -232,5 +234,6 @@ export function UploadPage() {
         />
       )}
     </div>
+    </LeaderGate>
   );
 }

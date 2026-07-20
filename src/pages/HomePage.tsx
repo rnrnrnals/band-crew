@@ -22,6 +22,7 @@ import { AudioFeedCard } from '../features/feed/AudioFeedCard';
 import { FeedSeenMarker } from '../features/feed/FeedSeenMarker';
 
 import { SoundDetailSheet } from '../features/feed/SoundDetailSheet';
+import { TeamSearchSheet } from '../features/feed/TeamSearchSheet';
 
 export function HomePage() {
   const { posts, teamAudios, followingIds, myTeamIds, activeTeamId, activeTeam, refreshAppData } = useApp();
@@ -29,6 +30,7 @@ export function HomePage() {
   const [storyId, setStoryId] = useState<string | null>(null);
   const [pinnedFeedTeamIds, setPinnedFeedTeamIds] = useState<string[]>([]);
   const [openSoundId, setOpenSoundId] = useState<string | null>(null);
+  const [teamSearchOpen, setTeamSearchOpen] = useState(false);
   const [feedRankEpoch, setFeedRankEpoch] = useState(() => Date.now());
   const seenSnapshotRef = useRef(loadFeedSeen());
   const prevPathRef = useRef(location.pathname);
@@ -89,6 +91,17 @@ export function HomePage() {
     <div className="page">
       <header className="home-head">
         <h1 className="page-title">BandCrew</h1>
+        <button
+          type="button"
+          className="home-head-search"
+          aria-label="팀 검색"
+          onClick={() => setTeamSearchOpen(true)}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="M16.5 16.5L21 21" />
+          </svg>
+        </button>
         <span className="home-team">{activeTeam?.name}</span>
       </header>
 
@@ -117,6 +130,8 @@ export function HomePage() {
       {openSoundId && (
         <SoundDetailSheet trackId={openSoundId} onClose={() => setOpenSoundId(null)} />
       )}
+
+      {teamSearchOpen ? <TeamSearchSheet onClose={() => setTeamSearchOpen(false)} /> : null}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { Story } from '../../types';
 import { useApp } from '../../state/AppContext';
 import { formatRelativeTime } from '../../utils/timeUtils';
+import { markStorySeen } from '../../utils/storySeenStorage';
 import './StoryViewer.css';
 
 function buildPlaylist(
@@ -67,6 +68,11 @@ export function StoryViewer({
   const teamStories = bundle?.stories ?? [];
   const story = teamStories[storyIdx];
   const team = story ? getTeam(story.teamId) : undefined;
+
+  useEffect(() => {
+    if (!story) return;
+    markStorySeen(story.id);
+  }, [story?.id]);
 
   useEffect(() => {
     if (!story) return;
