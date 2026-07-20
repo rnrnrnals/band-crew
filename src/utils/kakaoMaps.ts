@@ -28,12 +28,23 @@ declare global {
           options: { center: KakaoLatLng; level: number },
         ) => KakaoMap;
         LatLng: new (lat: number, lng: number) => KakaoLatLng;
-        Marker: new (options: { map: KakaoMap; position: KakaoLatLng }) => KakaoMarker;
+        Marker: new (options: { map: KakaoMap; position: KakaoLatLng; clickable?: boolean }) => KakaoMarker;
+        event: {
+          addListener: (target: KakaoMap | KakaoMarker, type: string, handler: () => void) => void;
+          removeListener: (target: KakaoMap | KakaoMarker, type: string, handler: () => void) => void;
+        };
         services: {
           Places: new () => {
             keywordSearch: (
               keyword: string,
               callback: (data: KakaoPlaceResult[], status: string) => void,
+            ) => void;
+          };
+          Geocoder: new () => {
+            coord2Address: (
+              lng: number,
+              lat: number,
+              callback: (result: KakaoGeocodeResult[], status: string) => void,
             ) => void;
           };
           Status: {
@@ -54,6 +65,8 @@ interface KakaoLatLng {
 interface KakaoMap {
   setCenter(latlng: KakaoLatLng): void;
   setLevel(level: number): void;
+  getCenter(): KakaoLatLng;
+  panTo(latlng: KakaoLatLng): void;
 }
 
 interface KakaoMarker {
@@ -61,7 +74,38 @@ interface KakaoMarker {
   setPosition(latlng: KakaoLatLng): void;
 }
 
+interface KakaoGeocodeResult {
+  road_address?: { address_name: string };
+  address?: { address_name: string };
+}
+
 let loadPromise: Promise<void> | null = null;
+
+export function getKakaoMapsAppKey(): string | undefined {
+  const key = import.meta.env.VITE_KAKAO_MAP_APP_KEY?.trim();
+  return key || undefined;
+}
+
+/** Domain to register under Kakao Developers → JavaScript key → JavaScript SDK domain */
+export function getKakaoSdkDomainHint(): string {
+  if (typeof window === 'undefined') return 'http://localhost:5173';
+  return window.location.origin;
+}
+
+export function getKakaoMapsSetupHelp(): string {
+  const origin = getKakaoSdkDomainHint();
+  return [
+    `JavaScript SDK 도메인에 ${origin} 등록`,
+    '제품 설정 → 카카오맵 활성화',
+    '.env의 VITE_KAKAO_MAP_APP_KEY는 JavaScript 키(REST 키 아님)',
+    '설정 후 npm run dev 재시작',
+  ].join(' · ');
+}
+
+function failLoad(reject: (error: Error) => void, message: string) {
+  loadPromise = null;
+  reject(new Error(message));
+}
 
 export function loadKakaoMaps(appKey: string): Promise<void> {
   if (window.kakao?.maps?.services) {
@@ -72,18 +116,27 @@ export function loadKakaoMaps(appKey: string): Promise<void> {
   if (loadPromise) return loadPromise;
 
   loadPromise = new Promise((resolve, reject) => {
+    const origin = getKakaoSdkDomainHint();
+    const help = getKakaoMapsSetupHelp();
+
     const existing = document.querySelector<HTMLScriptElement>('script[data-kakao-maps]');
     if (existing) {
       existing.addEventListener(
         'load',
         () => {
-          window.kakao?.maps.load(() => resolve());
+          if (!window.kakao?.maps) {
+            failLoad(reject, `카카오맵 SDK를 불러오지 못했어요. ${help}`);
+            return;
+          }
+          window.kakao.maps.load(() => resolve());
         },
         { once: true },
       );
-      existing.addEventListener('error', () => reject(new Error('Kakao Maps failed to load')), {
-        once: true,
-      });
+      existing.addEventListener(
+        'error',
+        () => failLoad(reject, `카카오맵 SDK 로드 실패. ${origin} 도메인·JavaScript 키를 확인해 주세요.`),
+        { once: true },
+      );
       return;
     }
 
@@ -93,16 +146,23 @@ export function loadKakaoMaps(appKey: string): Promise<void> {
     script.async = true;
     script.onload = () => {
       if (!window.kakao?.maps) {
-        reject(new Error('Kakao Maps failed to load'));
+        failLoad(reject, `카카오맵 SDK를 불러오지 못했어요. ${help}`);
         return;
       }
       window.kakao.maps.load(() => resolve());
     };
-    script.onerror = () => reject(new Error('Kakao Maps failed to load'));
+    script.onerror = () =>
+      failLoad(
+        reject,
+        `카카오맵 SDK 로드 실패. JavaScript SDK 도메인에 ${origin} 등록했는지, JavaScript 키를 쓰는지 확인해 주세요.`,
+      );
     document.head.appendChild(script);
   });
 
-  return loadPromise;
+  return loadPromise.catch((error) => {
+    loadPromise = null;
+    throw error;
+  });
 }
 
 export function placeResultToLatLng(place: KakaoPlaceResult): { lat: number; lng: number } {
@@ -157,6 +217,45 @@ export function buildSchedulePlaceSelection(place: KakaoPlaceResult): SchedulePl
     lng,
     placeId: place.id,
   };
+}
+
+export function buildSchedulePlaceSelectionFromCoords(
+  label: string,
+  lat: number,
+  lng: number,
+): SchedulePlaceSelection {
+  const linkUrl = `https://map.kakao.com/link/map/${lat},${lng}`;
+  return {
+    label,
+    mapUrl: encodePlaceMapUrl(linkUrl, lat, lng),
+    lat,
+    lng,
+  };
+}
+
+export function reverseGeocodeCoords(
+  appKey: string,
+  lat: number,
+  lng: number,
+): Promise<{ label: string; lat: number; lng: number }> {
+  return loadKakaoMaps(appKey).then(
+    () =>
+      new Promise((resolve, reject) => {
+        const geocoder = new window.kakao!.maps.services.Geocoder();
+        geocoder.coord2Address(lng, lat, (result, status) => {
+          if (status !== window.kakao!.maps.services.Status.OK || result.length === 0) {
+            reject(new Error('주소를 찾지 못했어요.'));
+            return;
+          }
+          const row = result[0];
+          const label =
+            row.road_address?.address_name ||
+            row.address?.address_name ||
+            `선택한 위치 (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+          resolve({ label, lat, lng });
+        });
+      }),
+  );
 }
 
 export function encodePlaceMapUrl(linkUrl: string, lat: number, lng: number): string {
