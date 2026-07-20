@@ -11,6 +11,7 @@ import type {
   TeamAudioTrack,
   TeamHighlight,
   PracticeSessionMeta,
+  TeamPracticeSong,
 } from '../types';
 
 export interface DbTeam {
@@ -19,6 +20,7 @@ export interface DbTeam {
   genre: string;
   bio: string;
   cover_url: string;
+  instagram?: string | null;
   invite_code: string | null;
   invite_code_created_at: string | null;
   created_at: string;
@@ -32,7 +34,9 @@ export interface DbTeamMember {
   position: PositionId;
   avatar_url: string;
   bio: string;
+  instagram?: string | null;
   is_leader: boolean;
+  is_co_leader?: boolean | null;
 }
 
 export interface DbPost {
@@ -88,7 +92,9 @@ export function mapTeamMember(row: DbTeamMember): BandTeam['members'][number] {
     position: row.position,
     avatar: row.avatar_url || undefined,
     bio: row.bio || undefined,
+    instagram: row.instagram?.trim() || undefined,
     isLeader: row.is_leader,
+    isCoLeader: row.is_co_leader === true,
   };
 }
 
@@ -99,6 +105,7 @@ export function mapTeam(row: DbTeam, members: DbTeamMember[]): BandTeam {
     genre: row.genre,
     bio: row.bio,
     cover: row.cover_url,
+    instagram: row.instagram?.trim() || undefined,
     inviteCode: row.invite_code ?? undefined,
     inviteCodeCreatedAt: row.invite_code_created_at ?? undefined,
     members: members.map(mapTeamMember),
@@ -236,6 +243,24 @@ export function mapPractice(row: {
     bpm: row.bpm,
     updatedAt: row.updated_at,
     authorUserId: row.author_user_id ?? undefined,
+  };
+}
+
+export function mapTeamPracticeSong(row: {
+  id: string;
+  team_id: string;
+  title: string;
+  is_current: boolean;
+  author_user_id?: string | null;
+  updated_at: string;
+}): TeamPracticeSong {
+  return {
+    id: row.id,
+    teamId: row.team_id,
+    title: row.title,
+    updatedAt: row.updated_at,
+    authorUserId: row.author_user_id ?? undefined,
+    isCurrent: row.is_current,
   };
 }
 

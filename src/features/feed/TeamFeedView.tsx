@@ -1,7 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { BandTeam, Post } from '../../types';
 import { useApp } from '../../state/AppContext';
+import { isTeamStoriesFullySeen, useStorySeen } from '../../utils/storySeenStorage';
+import { sortTeamPracticeSongs } from '../../utils/teamPracticeSessions';
+import { InstagramProfileLink } from './InstagramProfileLink';
 import { FollowListSheet } from './FollowListSheet';
 import { HighlightEditorSheet } from './HighlightEditorSheet';
 import { HighlightRail } from './HighlightRail';
@@ -11,6 +14,7 @@ import { PostDetailSheet } from './PostDetailSheet';
 import { StoryViewer } from './StoryViewer';
 import { TeamAudioPanel, type MixedFeedItem } from './TeamAudioPanel';
 import { SoundDetailSheet } from './SoundDetailSheet';
+import { TeamPracticeSheet } from './TeamPracticeSheet';
 import './TeamFeedView.css';
 
 type ListKind = 'followers' | 'following' | 'members';
@@ -37,14 +41,22 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
     getTeamFollowers,
     getTeamFollowing,
     addTeamAudio,
+    teamPracticeSongs,
+    loadTeamPracticeSongs,
+    canManageTeam,
   } = useApp();
+  const storySeen = useStorySeen();
   const [openList, setOpenList] = useState<ListKind | null>(null);
+  const [practiceOpen, setPracticeOpen] = useState(false);
   const [feedTab, setFeedTab] = useState<FeedTab>('all');
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [selectedSoundId, setSelectedSoundId] = useState<string | null>(null);
   const [storyId, setStoryId] = useState<string | null>(null);
   const [viewHighlightId, setViewHighlightId] = useState<string | null>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>(null);
+
+  const canManage = variant === 'own' && canManageTeam(team.id);
+  const isOwnTeam = variant === 'own';
 
   const teamStories = useMemo(
     () =>
@@ -55,6 +67,19 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
   );
   const firstStory = teamStories[0];
   const hasStories = teamStories.length > 0;
+  const storiesAllSeen = isTeamStoriesFullySeen(
+    teamStories.map((story) => story.id),
+    storySeen,
+  );
+
+  const { current: currentPractice } = useMemo(
+    () => sortTeamPracticeSongs(teamPracticeSongs, team.id),
+    [teamPracticeSongs, team.id],
+  );
+
+  useEffect(() => {
+    void loadTeamPracticeSongs(team.id);
+  }, [team.id, loadTeamPracticeSongs]);
 
   const teamPosts = useMemo(
     () =>
@@ -143,13 +168,33 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
   return (
     <div className="page team-feed">
       <header className="tf-top">
-        {variant === 'other' ? (
-          <Link to="/" className="tf-back">
-            ←
-          </Link>
-        ) : null}
-        <h1 className="tf-username">{team.name}</h1>
-        {variant === 'own' ? (
+        <div className="tf-top-left">
+          {variant === 'other' ? (
+            <Link to="/" className="tf-back">
+              ←
+            </Link>
+          ) : null}
+          <h1 className="tf-username">{team.name}</h1>
+        </div>
+        {currentPractice ? (
+          <button
+            type="button"
+            className="tf-practice-now"
+            onClick={() => setPracticeOpen(true)}
+            aria-label="연습곡 보기"
+          >
+            <span className="tf-practice-now-label">연습중</span>
+            <span className="tf-practice-now-title">{currentPractice.title}</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="tf-practice-hit"
+            onClick={() => setPracticeOpen(true)}
+            aria-label="연습곡 설정"
+          />
+        )}
+        {isOwnTeam ? (
           <Link to="/my/settings" className="tf-settings" aria-label="팀 설정">
             ⚙
           </Link>
@@ -159,12 +204,12 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
       </header>
 
       <section className="tf-profile">
-        {variant === 'own' ? (
+        {isOwnTeam ? (
           hasStories && firstStory ? (
             <div className="tf-avatar-mine-wrap">
               <button
                 type="button"
-                className="tf-avatar-wrap has-story"
+                className={`tf-avatar-wrap has-story${storiesAllSeen ? ' is-seen' : ''}`}
                 onClick={() => setStoryId(firstStory.id)}
                 aria-label={`${team.name} 스토리 보기`}
               >
@@ -173,20 +218,28 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
                   <span className="tf-story-count">{teamStories.length}</span>
                 )}
               </button>
-              <Link to="/story/upload" className="tf-story-add-plus" aria-label="스토리 추가">+</Link>
+              {canManage ? (
+                <Link to="/story/upload" className="tf-story-add-plus" aria-label="스토리 추가">+</Link>
+              ) : null}
             </div>
-          ) : (
+          ) : canManage ? (
             <Link to="/story/upload" className="tf-avatar-mine-wrap tf-avatar-upload-link" aria-label="스토리 올리기">
               <div className="tf-avatar-wrap">
                 <img src={team.cover} alt="" className="tf-avatar" />
               </div>
               <span className="tf-story-add-plus">+</span>
             </Link>
+          ) : (
+            <div className="tf-avatar-mine-wrap">
+              <div className="tf-avatar-wrap">
+                <img src={team.cover} alt="" className="tf-avatar" />
+              </div>
+            </div>
           )
         ) : hasStories && firstStory ? (
           <button
             type="button"
-            className="tf-avatar-wrap has-story"
+            className={`tf-avatar-wrap has-story${storiesAllSeen ? ' is-seen' : ''}`}
             onClick={() => setStoryId(firstStory.id)}
             aria-label={`${team.name} 스토리 보기`}
           >
@@ -214,12 +267,15 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
       </section>
 
       <div className="tf-meta">
-        <p className="tf-genre">{team.genre}</p>
+        <div className="tf-meta-head">
+          <p className="tf-genre">{team.genre}</p>
+          {team.instagram ? <InstagramProfileLink username={team.instagram} /> : null}
+        </div>
         <p className="tf-bio">{team.bio}</p>
       </div>
 
       <div className="tf-actions">
-        {variant === 'own' ? (
+        {canManage ? (
           <>
             <Link to="/my/team-profile" className="btn tf-settings-btn">
               프로필 수정
@@ -228,7 +284,7 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
               새 게시물
             </Link>
           </>
-        ) : (
+        ) : variant === 'other' ? (
           <>
             <button type="button" className="btn tf-members-btn" onClick={() => setOpenList('members')}>
               멤버 · {team.members.length}명
@@ -241,12 +297,12 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
               {isFollowing ? '팔로잉' : '팔로우'}
             </button>
           </>
-        )}
+        ) : null}
       </div>
 
       <HighlightRail
         teamId={team.id}
-        canEdit={variant === 'own'}
+        canEdit={canManage}
         onOpen={setViewHighlightId}
         onCreate={() => setEditorMode({ kind: 'create' })}
         onAppend={(highlightId) => setEditorMode({ kind: 'append', highlightId })}
@@ -291,7 +347,7 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
           ) : (
             <div className="tf-empty card">
               <p>아직 올린 콘텐츠가 없어요.</p>
-              {variant === 'own' && (
+              {canManage && (
                 <Link to="/upload" className="btn btn-primary">
                   첫 게시물 올리기
                 </Link>
@@ -308,7 +364,7 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
           ) : (
             <div className="tf-empty card">
               <p>사진이나 영상 게시물이 없어요.</p>
-              {variant === 'own' && (
+              {canManage && (
                 <Link to="/upload" className="btn btn-primary">
                   미디어 올리기
                 </Link>
@@ -321,7 +377,7 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
       {feedTab === 'audio' && (
         <TeamAudioPanel
           tracks={teamAudioTracks}
-          canUpload={variant === 'own'}
+          canUpload={canManage}
           onTrackOpen={setSelectedSoundId}
           onUpload={(input) =>
             addTeamAudio({
@@ -346,14 +402,14 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
       {selectedPostId && (
         <PostDetailSheet
           postId={selectedPostId}
-          canDelete={variant === 'own'}
+          canDelete={canManage}
           onClose={() => setSelectedPostId(null)}
         />
       )}
       {selectedSoundId && (
         <SoundDetailSheet
           trackId={selectedSoundId}
-          canDelete={variant === 'own'}
+          canDelete={canManage}
           onClose={() => setSelectedSoundId(null)}
         />
       )}
@@ -364,7 +420,7 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
         <HighlightViewer
           highlight={viewingHighlight}
           team={team}
-          canEdit={variant === 'own'}
+          canEdit={canManage}
           onClose={() => setViewHighlightId(null)}
           onEdit={() => {
             setViewHighlightId(null);
@@ -384,6 +440,13 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
           onClose={() => setEditorMode(null)}
         />
       )}
+      {practiceOpen ? (
+        <TeamPracticeSheet
+          team={team}
+          canEdit={canManage}
+          onClose={() => setPracticeOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

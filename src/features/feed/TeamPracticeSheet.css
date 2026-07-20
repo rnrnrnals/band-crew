@@ -1,0 +1,207 @@
+.team-practice-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.team-practice-sheet {
+  width: min(100%, 480px);
+  max-height: min(82vh, 560px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  box-shadow: var(--shadow);
+}
+
+.team-practice-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.team-practice-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.team-practice-close {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.team-practice-sub {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.team-practice-current {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--brand);
+  background: var(--brand-soft);
+  margin-bottom: 16px;
+}
+
+.team-practice-label {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-dim);
+}
+
+.team-practice-current-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.team-practice-current-meta {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.team-practice-current-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-practice-current-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.team-practice-current-row .team-practice-current-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-practice-current-row .team-practice-item-delete {
+  flex-shrink: 0;
+  background: var(--surface);
+}
+
+.team-practice-edit {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.team-practice-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.team-practice-edit-actions .btn {
+  flex: 1;
+}
+
+.team-practice-section-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.team-practice-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.team-practice-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-practice-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.team-practice-item-main strong {
+  font-size: 14px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-practice-item-main span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.team-practice-item-main:disabled {
+  cursor: default;
+  opacity: 0.92;
+}
+
+.team-practice-item-delete {
+  flex-shrink: 0;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.team-practice-empty {
+  margin: 0 0 16px;
+  padding: 16px 12px;
+  border-radius: 12px;
+  background: var(--surface-raised);
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.team-practice-new {
+  padding-top: 4px;
+  border-top: 1px solid var(--hairline);
+}
+
+.team-practice-error {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--red);
+}
+
+.team-practice-info {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}

@@ -4,10 +4,15 @@ import { Link } from 'react-router-dom';
 
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../state/AuthContext';
+import type { TeamMember } from '../types';
 
 import { POSITION_LABELS } from '../mock/positions';
 
-import { findCurrentMember, getMemberAvatar, sortMembersWithLeaderFirst } from '../mock/memberUtils';
+import { findCurrentMember, getMemberAvatar, getMemberRoleLabel, sortMembersWithLeaderFirst } from '../mock/memberUtils';
+
+import { MemberProfileSheet } from '../features/feed/MemberProfileSheet';
+
+import { InstagramProfileLink } from '../features/feed/InstagramProfileLink';
 
 import { PositionPickerSheet } from '../features/team/PositionPickerSheet';
 
@@ -37,11 +42,15 @@ export function MySettingsPage() {
 
     leaveTeam,
 
+    canManageActiveTeam,
+
   } = useApp();
 
   const { authRequired, signOut } = useAuth();
 
   const [positionOpen, setPositionOpen] = useState(false);
+
+  const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
 
   const [inviteMsg, setInviteMsg] = useState('');
 
@@ -188,6 +197,16 @@ export function MySettingsPage() {
 
           <span>현재 팀 · {activeTeam?.name ?? '없음'}</span>
 
+          {user.instagram ? (
+            <InstagramProfileLink
+              username={user.instagram}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+            />
+          ) : null}
+
           {user.bio ? (
             <p className="me-card-bio">{user.bio}</p>
           ) : (
@@ -211,43 +230,30 @@ export function MySettingsPage() {
             {sortMembersWithLeaderFirst(activeTeam.members).map((m) => {
 
               const isMe = currentMember?.id === m.id;
-              const leaderClass = m.isLeader ? ' chip-leader' : '';
-
-              if (isMe) {
-
-                return (
-
-                  <button
-
-                    key={m.id}
-
-                    type="button"
-
-                    className={`chip chip-me${leaderClass}`}
-
-                    onClick={() => setPositionOpen(true)}
-
-                  >
-
-                    <img src={getMemberAvatar(m)} alt="" className="member-chip-avatar" />
-
-                    {m.nick} · {POSITION_LABELS[m.position]}
-
-                  </button>
-
-                );
-
-              }
+              const roleClass = m.isLeader ? ' chip-leader' : m.isCoLeader ? ' chip-coleader' : '';
+              const roleSuffix = getMemberRoleLabel(m);
 
               return (
 
-                <div key={m.id} className={`chip${leaderClass}`}>
+                <button
+
+                  key={m.id}
+
+                  type="button"
+
+                  className={`chip${isMe ? ' chip-me' : ''}${roleClass}`}
+
+                  onClick={() => setSelectedMember(m)}
+
+                >
 
                   <img src={getMemberAvatar(m)} alt="" className="member-chip-avatar" />
 
                   {m.nick} · {POSITION_LABELS[m.position]}
 
-                </div>
+                  {roleSuffix ? ` · ${roleSuffix}` : ''}
+
+                </button>
 
               );
 
@@ -259,6 +265,7 @@ export function MySettingsPage() {
 
           <h2 className="sec">팀 초대</h2>
 
+          {canManageActiveTeam ? (
           <div className="invite-card card">
 
             {hasActiveInvite ? (
@@ -342,6 +349,9 @@ export function MySettingsPage() {
             {inviteMsg && <p className="invite-msg">{inviteMsg}</p>}
 
           </div>
+          ) : (
+            <p className="invite-hint card">팀 초대 코드는 리더 또는 코리더만 만들 수 있어요.</p>
+          )}
 
         </>
 
@@ -428,6 +438,30 @@ export function MySettingsPage() {
           onSelect={updateMyPosition}
 
           onClose={() => setPositionOpen(false)}
+
+        />
+
+      )}
+
+      {selectedMember && activeTeam && (
+
+        <MemberProfileSheet
+
+          member={selectedMember}
+
+          team={activeTeam}
+
+          isSelf={currentMember?.id === selectedMember.id}
+
+          onChangePosition={() => {
+
+            setSelectedMember(null);
+
+            setPositionOpen(true);
+
+          }}
+
+          onClose={() => setSelectedMember(null)}
 
         />
 

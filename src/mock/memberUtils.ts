@@ -1,18 +1,39 @@
 import type { TeamMember, AppUser, BandTeam } from '../types';
 
+export function isCurrentMember(member: TeamMember, user: AppUser): boolean {
+  if (member.userId) return member.userId === user.id;
+  return member.id === user.id;
+}
+
 export function findCurrentMember(team: BandTeam, user: AppUser): TeamMember | undefined {
-  return (
-    team.members.find((m) => m.userId === user.id || m.id === user.id) ??
-    team.members.find((m) => m.avatar === user.avatar) ??
-    team.members.find((m) => m.nick === user.name)
-  );
+  return team.members.find((member) => isCurrentMember(member, user));
+}
+
+export function isTeamLeader(team: BandTeam, user: AppUser): boolean {
+  const member = findCurrentMember(team, user);
+  return member?.isLeader === true;
+}
+
+export function canManageTeam(team: BandTeam, user: AppUser): boolean {
+  const member = findCurrentMember(team, user);
+  if (!member) return false;
+  return member.isLeader === true || member.isCoLeader === true;
+}
+
+export function getMemberRoleLabel(member: TeamMember): string | null {
+  if (member.isLeader) return '리더';
+  if (member.isCoLeader) return '코리더';
+  return null;
 }
 
 export function sortMembersWithLeaderFirst(members: TeamMember[]): TeamMember[] {
   return [...members].sort((a, b) => {
-    if (a.isLeader && !b.isLeader) return -1;
-    if (!a.isLeader && b.isLeader) return 1;
-    return 0;
+    const rank = (member: TeamMember) => {
+      if (member.isLeader) return 0;
+      if (member.isCoLeader) return 1;
+      return 2;
+    };
+    return rank(a) - rank(b);
   });
 }
 
@@ -33,8 +54,15 @@ export function getMemberAvatar(member: TeamMember): string {
 }
 
 export function getMemberBio(member: TeamMember, user?: AppUser): string | undefined {
-  if (user && member.avatar && member.avatar === user.avatar) {
+  if (user && isCurrentMember(member, user)) {
     return user.bio ?? member.bio;
   }
   return member.bio;
+}
+
+export function getMemberInstagram(member: TeamMember, user?: AppUser): string | undefined {
+  if (user && isCurrentMember(member, user)) {
+    return user.instagram ?? member.instagram;
+  }
+  return member.instagram;
 }

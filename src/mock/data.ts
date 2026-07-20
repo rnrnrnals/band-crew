@@ -7,6 +7,7 @@ import type {
   ScheduleEvent,
   Story,
   TeamAudioTrack,
+  TeamPracticeSong,
 } from '../types';
 
 export const CURRENT_USER: AppUser = {
@@ -25,6 +26,7 @@ export const TEAMS: BandTeam[] = [
     members: [
       {
         id: 'm1',
+        userId: 'u1',
         nick: '민수',
         position: 'elec',
         isLeader: true,
@@ -373,6 +375,23 @@ export const INITIAL_SESSIONS: PracticeSessionMeta[] = [
     title: '버스킹 셋리스트 #1',
     bpm: 110,
     updatedAt: '2026-07-15T19:00:00',
+  },
+];
+
+export const INITIAL_TEAM_PRACTICE_SONGS: TeamPracticeSong[] = [
+  {
+    id: 'tps1',
+    teamId: 't-demo',
+    title: 'NewJeans - Ditto',
+    updatedAt: '2026-07-18T20:00:00',
+    isCurrent: true,
+  },
+  {
+    id: 'tps2',
+    teamId: 't-demo',
+    title: '아이유 - Blueming',
+    updatedAt: '2026-07-12T19:00:00',
+    isCurrent: false,
   },
 ];
 

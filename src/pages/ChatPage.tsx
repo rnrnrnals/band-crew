@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import type { BandTeam, ChatMessage } from '../types';
 import { useApp } from '../state/AppContext';
-import { getMemberAvatar } from '../mock/memberUtils';
+import { findCurrentMember, getMemberAvatar } from '../mock/memberUtils';
 import { getCrossTeamThreadId } from '../utils/chatUtils';
 import { prepareMediaBlob, getVideoDuration, videoNeedsTrim, MAX_VIDEO_DURATION_SEC } from '../utils/fileMedia';
+import { canvasToImageBlob } from '../utils/imageOutput';
 import { ensurePublishedMedia } from '../utils/mediaUpload';
 import { VideoTrimSheet } from '../features/media/VideoTrimSheet';
 import { ChatShareCard } from '../features/chat/ChatShareCard';
@@ -204,7 +205,7 @@ function ChatRoom({ peerTeamId, peerTeam }: ChatRoomProps) {
       .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
   }, [chatMessages, activeTeam, threadId]);
 
-  const myMember = activeTeam?.members.find((m) => m.avatar === user.avatar);
+  const myMember = activeTeam ? findCurrentMember(activeTeam, user) : undefined;
   const myNick = myMember?.nick ?? user.name;
 
   useEffect(() => {
@@ -379,8 +380,8 @@ function ChatRoom({ peerTeamId, peerTeam }: ChatRoomProps) {
     canvas.height = video.videoHeight;
     canvas.getContext('2d')?.drawImage(video, 0, 0);
 
-    canvas.toBlob(
-      (blob) => {
+    void canvasToImageBlob(canvas, 0.9)
+      .then((blob) => {
         if (!blob) return;
         closeCapture();
         void prepareMediaBlob(blob, 'image')
@@ -394,10 +395,10 @@ function ChatRoom({ peerTeamId, peerTeam }: ChatRoomProps) {
           .catch((err) => {
             setError(err instanceof Error ? err.message : '사진을 처리하지 못했어요.');
           });
-      },
-      'image/jpeg',
-      0.9,
-    );
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : '사진을 처리하지 못했어요.');
+      });
   };
 
   const startVideoCapture = () => {

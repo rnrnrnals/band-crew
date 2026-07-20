@@ -1,3 +1,5 @@
+import { canvasToImageBlob, canvasToImageDataUrl } from './imageOutput';
+
 export const SQUARE_COVER_OUTPUT_SIZE = 900;
 
 export function clamp(value: number, min: number, max: number): number {
@@ -29,19 +31,45 @@ export function initialPan(viewport: number, imageWidth: number, imageHeight: nu
   return clampPan(viewport, imageWidth, imageHeight, scale, (viewport - imageWidth * scale) / 2, (viewport - imageHeight * scale) / 2);
 }
 
-export async function loadImageFromFile(file: Blob): Promise<HTMLImageElement> {
-  const url = URL.createObjectURL(file);
-  try {
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
     const img = new Image();
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error('이미지를 불러오지 못했어요.'));
-      img.src = url;
-    });
-    return img;
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('이미지를 불러오지 못했어요.'));
+    img.src = src;
+  });
+}
+
+export async function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(blob);
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('이미지를 불러오지 못했어요.');
+        ctx.drawImage(bitmap, 0, 0);
+        return loadImageElement(canvasToImageDataUrl(canvas, 0.95));
+      } finally {
+        bitmap.close();
+      }
+    } catch {
+      // Fall back to object URL decoding below.
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  try {
+    return await loadImageElement(url);
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+export async function loadImageFromFile(file: Blob): Promise<HTMLImageElement> {
+  return loadImageFromBlob(file);
 }
 
 export function cropSquareFromPan(
@@ -76,17 +104,10 @@ export async function cropSquareImageFile(
 ): Promise<Blob> {
   const image = await loadImageFromFile(file);
   const canvas = cropSquareFromPan(image, viewport, scale, offsetX, offsetY, outputSize);
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          reject(new Error('이미지를 저장하지 못했어요.'));
-          return;
-        }
-        resolve(blob);
-      },
-      'image/jpeg',
-      0.9,
-    );
-  });
+  const qualities = [0.9, 0.82, 0.74];
+  for (const quality of qualities) {
+    const blob = await canvasToImageBlob(canvas, quality);
+    if (blob) return blob;
+  }
+  throw new Error('이미지를 저장하지 못했어요.');
 }

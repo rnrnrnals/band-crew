@@ -5,6 +5,8 @@
 
 .session-new {
   margin-bottom: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .session-list {
@@ -81,4 +83,10 @@
   text-align: center;
   color: var(--text-faint);
   padding: 24px;
+}
+
+.practice-page-error {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #e07070;
 }

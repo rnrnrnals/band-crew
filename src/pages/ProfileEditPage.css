@@ -41,3 +41,25 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+.profile-edit-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.profile-edit-field-head label {
+  margin: 0;
+}
+
+.profile-edit-counter {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.profile-edit-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-faint);
+}

@@ -83,6 +83,15 @@
   max-height: none;
 }
 
+.square-crop-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
 .square-crop-frame {
   position: absolute;
   inset: 0;

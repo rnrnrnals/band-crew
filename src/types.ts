@@ -15,7 +15,9 @@ export interface TeamMember {
   position: PositionId;
   avatar?: string;
   bio?: string;
+  instagram?: string;
   isLeader?: boolean;
+  isCoLeader?: boolean;
 }
 
 export interface BandTeam {
@@ -24,6 +26,7 @@ export interface BandTeam {
   genre: string;
   bio: string;
   cover: string;
+  instagram?: string;
   inviteCode?: string;
   inviteCodeCreatedAt?: string;
   members: TeamMember[];
@@ -113,11 +116,22 @@ export interface PracticeSessionMeta {
   authorUserId?: string;
 }
 
+/** Team feed "연습중" song — not a practice-room session. */
+export interface TeamPracticeSong {
+  id: string;
+  teamId: string;
+  title: string;
+  updatedAt: string;
+  authorUserId?: string;
+  isCurrent?: boolean;
+}
+
 export interface AppUser {
   id: string;
   name: string;
   avatar: string;
   bio?: string;
+  instagram?: string;
 }
 
 export interface ChatMessage {

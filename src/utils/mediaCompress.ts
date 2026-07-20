@@ -4,6 +4,7 @@ import {
   CHAT_MAX_VIDEO_BYTES,
   readFileAsDataUrl,
 } from './fileMedia';
+import { canvasToImageBlob, getPreferredImageMime } from './imageOutput';
 
 export type MediaKind = 'image' | 'video' | 'audio';
 
@@ -47,6 +48,9 @@ async function loadImage(blob: Blob): Promise<HTMLImageElement> {
 }
 
 async function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
+  if (type === getPreferredImageMime()) {
+    return canvasToImageBlob(canvas, quality);
+  }
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (result) => (result ? resolve(result) : reject(new Error('압축에 실패했어요.'))),
@@ -60,11 +64,13 @@ export async function compressImageBlob(
   blob: Blob,
   maxBytes = CHAT_MAX_IMAGE_BYTES,
 ): Promise<Blob> {
-  if (blob.size <= maxBytes) return blob;
+  const mime = getPreferredImageMime();
+  if (blob.type === mime && blob.size <= maxBytes) return blob;
 
   const img = await loadImage(blob);
   const baseW = img.naturalWidth || img.width;
   const baseH = img.naturalHeight || img.height;
+  const qualities = [0.88, 0.82, 0.76, 0.68, 0.58, 0.48, 0.38];
 
   for (let pass = 0; pass < 8; pass += 1) {
     const scale = pass === 0 ? 1 : Math.max(0.35, 1 - pass * 0.11);
@@ -77,8 +83,8 @@ export async function compressImageBlob(
     if (!ctx) throw new Error('압축에 실패했어요.');
     ctx.drawImage(img, 0, 0, w, h);
 
-    for (const quality of [0.92, 0.84, 0.76, 0.68, 0.58, 0.48, 0.38]) {
-      const result = await canvasToBlob(canvas, 'image/jpeg', quality);
+    for (const quality of qualities) {
+      const result = await canvasToBlob(canvas, mime, quality);
       if (result.size <= maxBytes) return result;
     }
   }

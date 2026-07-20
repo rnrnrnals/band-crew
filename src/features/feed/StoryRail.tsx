@@ -1,10 +1,12 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../../state/AppContext';
+import { isTeamStoriesFullySeen, useStorySeen } from '../../utils/storySeenStorage';
 import './StoryRail.css';
 
 export function StoryRail({ onOpen }: { onOpen: (storyId: string) => void }) {
   const { stories, followingIds, activeTeamId, activeTeam, getTeam } = useApp();
+  const storySeen = useStorySeen();
 
   const myTeamStories = useMemo(() => {
     if (!activeTeamId) return [];
@@ -30,13 +32,24 @@ export function StoryRail({ onOpen }: { onOpen: (storyId: string) => void }) {
           teamId,
           firstStory: teamStories[0],
           count: teamStories.length,
+          storyIds: teamStories.map((story) => story.id),
         };
       })
-      .filter((x) => x.firstStory);
-  }, [stories, followingIds, activeTeamId]);
+      .filter((x) => x.firstStory)
+      .sort((a, b) => {
+        const aSeen = isTeamStoriesFullySeen(a.storyIds, storySeen);
+        const bSeen = isTeamStoriesFullySeen(b.storyIds, storySeen);
+        if (aSeen === bSeen) return 0;
+        return aSeen ? 1 : -1;
+      });
+  }, [stories, followingIds, activeTeamId, storySeen]);
 
   const firstMyStory = myTeamStories[0];
   const hasMyStory = myTeamStories.length > 0;
+  const myStoriesSeen = isTeamStoriesFullySeen(
+    myTeamStories.map((story) => story.id),
+    storySeen,
+  );
 
   return (
     <div className="story-rail">
@@ -45,7 +58,7 @@ export function StoryRail({ onOpen }: { onOpen: (storyId: string) => void }) {
           <div className="story-mine-wrap">
             <button
               type="button"
-              className="story-ring story-mine-ring"
+              className={`story-ring story-mine-ring${myStoriesSeen ? ' is-seen' : ''}`}
               onClick={() => onOpen(firstMyStory.id)}
               aria-label="내 팀 스토리 보기"
             >
@@ -72,9 +85,10 @@ export function StoryRail({ onOpen }: { onOpen: (storyId: string) => void }) {
         </Link>
       )}
 
-      {teamsWithStories.map(({ teamId, firstStory, count }) => {
+      {teamsWithStories.map(({ teamId, firstStory, count, storyIds }) => {
         const team = getTeam(teamId);
         if (!team || !firstStory) return null;
+        const allSeen = isTeamStoriesFullySeen(storyIds, storySeen);
         return (
           <button
             key={teamId}
@@ -82,7 +96,7 @@ export function StoryRail({ onOpen }: { onOpen: (storyId: string) => void }) {
             className="story-item"
             onClick={() => onOpen(firstStory.id)}
           >
-            <div className="story-ring">
+            <div className={`story-ring${allSeen ? ' is-seen' : ''}`}>
               <img src={team.cover} alt="" />
               {count > 1 && <span className="story-count">{count}</span>}
             </div>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { compressImageBlob, readFileAsDataUrl } from '../../utils/fileMedia';
+import { prepareProfileImageFile } from '../../utils/prepareProfileImageFile';
 import {
   clampPan,
   coverScale,
@@ -36,17 +37,46 @@ export function SquareImageCropSheet({
   const [minScale, setMinScale] = useState(1);
   const [dragging, setDragging] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [preparing, setPreparing] = useState(true);
+  const [preparedFile, setPreparedFile] = useState<File | null>(null);
   const [error, setError] = useState('');
 
-  const previewUrl = useMemo(() => URL.createObjectURL(file), [file]);
+  const previewUrl = useMemo(() => {
+    if (!preparedFile) return null;
+    return URL.createObjectURL(preparedFile);
+  }, [preparedFile]);
 
   useEffect(() => {
     openedAtRef.current = Date.now();
   }, [file]);
 
   useEffect(() => {
+    if (!previewUrl) return;
     return () => URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPreparing(true);
+    setPreparedFile(null);
+    setImageSize(null);
+    setError('');
+    void prepareProfileImageFile(file)
+      .then((nextFile) => {
+        if (!cancelled) setPreparedFile(nextFile);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : '이미지를 불러오지 못했어요.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPreparing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -72,12 +102,12 @@ export function SquareImageCropSheet({
   }, [viewportSize, imageSize]);
 
   useEffect(() => {
+    if (!preparedFile) return;
     let cancelled = false;
     setImageSize(null);
-    setError('');
     void (async () => {
       try {
-        const image = await loadImageFromFile(file);
+        const image = await loadImageFromFile(preparedFile);
         if (cancelled) return;
         setImageSize({
           w: image.naturalWidth || image.width,
@@ -92,7 +122,7 @@ export function SquareImageCropSheet({
     return () => {
       cancelled = true;
     };
-  }, [file]);
+  }, [preparedFile]);
 
   const applyPan = useCallback(
     (nextX: number, nextY: number, nextScale = scale) => {
@@ -121,7 +151,7 @@ export function SquareImageCropSheet({
   );
 
   const onViewportPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (processing || !imageSize) return;
+    if (processing || preparing || !imageSize) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {
@@ -156,11 +186,11 @@ export function SquareImageCropSheet({
   };
 
   const confirm = async () => {
-    if (!imageSize || processing) return;
+    if (!imageSize || !preparedFile || processing) return;
     setProcessing(true);
     setError('');
     try {
-      const cropped = await cropSquareImageFile(file, viewportSize, scale, offsetX, offsetY);
+      const cropped = await cropSquareImageFile(preparedFile, viewportSize, scale, offsetX, offsetY);
       const compressed = await compressImageBlob(cropped);
       const dataUrl = await readFileAsDataUrl(compressed);
       onConfirm(dataUrl);
@@ -198,7 +228,7 @@ export function SquareImageCropSheet({
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
         >
-          {imageSize ? (
+          {imageSize && previewUrl ? (
             <img
               src={previewUrl}
               alt=""
@@ -210,8 +240,12 @@ export function SquareImageCropSheet({
                 transform: `translate(${offsetX}px, ${offsetY}px)`,
               }}
             />
-          ) : (
+          ) : preparing ? (
+            <div className="square-crop-loading">사진 준비 중…</div>
+          ) : previewUrl ? (
             <img src={previewUrl} alt="" className="square-crop-image is-loading" draggable={false} />
+          ) : (
+            <div className="square-crop-loading">사진을 불러올 수 없어요.</div>
           )}
           <div className="square-crop-frame" aria-hidden />
         </div>
@@ -224,7 +258,7 @@ export function SquareImageCropSheet({
             min={0}
             max={100}
             value={zoomPct}
-            disabled={!imageSize || processing}
+            disabled={!imageSize || processing || preparing}
             onChange={(event) => applyScale(minScale + (Number(event.target.value) / 100) * minScale * 2)}
           />
         </div>
@@ -235,7 +269,7 @@ export function SquareImageCropSheet({
           <button type="button" className="btn" onClick={onClose} disabled={processing}>
             취소
           </button>
-          <button type="button" className="btn btn-primary" onClick={() => void confirm()} disabled={processing || !imageSize}>
+          <button type="button" className="btn btn-primary" onClick={() => void confirm()} disabled={processing || preparing || !imageSize}>
             {processing ? '처리 중…' : '적용'}
           </button>
         </div>

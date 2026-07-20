@@ -52,6 +52,32 @@ export async function fetchTeamById(teamId: string): Promise<BandTeam | null> {
   return teams[0] ?? null;
 }
 
+export async function searchTeamsByName(query: string, limit = 12): Promise<BandTeam[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  const supabase = requireSupabase();
+  const safe = trimmed.replace(/[%_]/g, '');
+  if (!safe) return [];
+
+  const { data: teamRows, error } = await supabase
+    .from(DB_TABLES.teams)
+    .select('*')
+    .ilike('name', `%${safe}%`)
+    .order('name')
+    .limit(limit);
+
+  if (error) throw error;
+
+  const ids = ((teamRows ?? []) as DbTeam[]).map((row) => row.id);
+  if (ids.length === 0) return [];
+
+  const membersByTeam = await fetchMembersForTeams(ids);
+  return ((teamRows ?? []) as DbTeam[]).map((row) =>
+    mapTeam(row, membersByTeam.get(row.id) ?? []),
+  );
+}
+
 export async function fetchMyTeams(userId: string): Promise<{
   teams: BandTeam[];
   myTeamIds: string[];
@@ -107,6 +133,7 @@ export async function createTeamInDb(
       position,
       avatar_url: user.avatar,
       bio: user.bio ?? '',
+      instagram: user.instagram ?? '',
       is_leader: true,
     })
     .select('*')
@@ -182,6 +209,7 @@ export async function joinTeamInDb(
       position,
       avatar_url: user.avatar,
       bio: user.bio ?? '',
+      instagram: user.instagram ?? '',
       is_leader: false,
     });
     if (joinError) return { ok: false, message: joinError.message };
@@ -273,13 +301,14 @@ export async function leaveTeamInDb(
 
 export async function updateTeamProfileInDb(
   teamId: string,
-  patch: { cover?: string; bio?: string; genre?: string },
+  patch: { cover?: string; bio?: string; genre?: string; instagram?: string },
 ): Promise<void> {
   const supabase = requireSupabase();
   const updates: Record<string, string> = {};
   if (patch.cover !== undefined) updates.cover_url = patch.cover;
   if (patch.bio !== undefined) updates.bio = patch.bio;
   if (patch.genre !== undefined) updates.genre = patch.genre;
+  if (patch.instagram !== undefined) updates.instagram = patch.instagram;
   if (Object.keys(updates).length === 0) return;
 
   const { error } = await supabase.from(DB_TABLES.teams).update(updates).eq('id', teamId);
@@ -315,13 +344,14 @@ export async function updateMemberPositionInDb(
 export async function syncMemberProfileInDb(
   teamId: string,
   userId: string,
-  patch: { nick?: string; avatar_url?: string; bio?: string },
+  patch: { nick?: string; avatar_url?: string; bio?: string; instagram?: string },
 ): Promise<void> {
   const supabase = requireSupabase();
   const updates: Record<string, string> = {};
   if (patch.nick !== undefined) updates.nick = patch.nick;
   if (patch.avatar_url !== undefined) updates.avatar_url = patch.avatar_url;
   if (patch.bio !== undefined) updates.bio = patch.bio;
+  if (patch.instagram !== undefined) updates.instagram = patch.instagram;
   if (Object.keys(updates).length === 0) return;
 
   const { error } = await supabase
@@ -330,4 +360,90 @@ export async function syncMemberProfileInDb(
     .eq('team_id', teamId)
     .eq('user_id', userId);
   if (error) throw error;
+}
+
+async function assertTeamLeader(teamId: string, userId: string): Promise<void> {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase
+    .from(DB_TABLES.teamMembers)
+    .select('is_leader')
+    .eq('team_id', teamId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.is_leader) throw new Error('리더만 할 수 있어요.');
+}
+
+export async function transferTeamLeadershipInDb(
+  teamId: string,
+  fromUserId: string,
+  toMemberId: string,
+): Promise<BandTeam> {
+  const supabase = requireSupabase();
+  await assertTeamLeader(teamId, fromUserId);
+
+  const { data: target, error: targetError } = await supabase
+    .from(DB_TABLES.teamMembers)
+    .select('id, user_id, is_leader')
+    .eq('id', toMemberId)
+    .eq('team_id', teamId)
+    .maybeSingle();
+  if (targetError) throw targetError;
+  if (!target) throw new Error('멤버를 찾을 수 없어요.');
+  if (target.is_leader) throw new Error('이미 리더예요.');
+
+  const { error: demoteError } = await supabase
+    .from(DB_TABLES.teamMembers)
+    .update({ is_leader: false })
+    .eq('team_id', teamId)
+    .eq('user_id', fromUserId);
+  if (demoteError) throw demoteError;
+
+  const { error: promoteError } = await supabase
+    .from(DB_TABLES.teamMembers)
+    .update({ is_leader: true, is_co_leader: false })
+    .eq('id', toMemberId);
+  if (promoteError) throw promoteError;
+
+  const team = await fetchTeamById(teamId);
+  if (!team) throw new Error('팀을 불러오지 못했어요.');
+  return team;
+}
+
+export async function setTeamCoLeaderInDb(
+  teamId: string,
+  leaderUserId: string,
+  memberId: string | null,
+): Promise<BandTeam> {
+  const supabase = requireSupabase();
+  await assertTeamLeader(teamId, leaderUserId);
+
+  const { error: clearError } = await supabase
+    .from(DB_TABLES.teamMembers)
+    .update({ is_co_leader: false })
+    .eq('team_id', teamId)
+    .eq('is_co_leader', true);
+  if (clearError) throw clearError;
+
+  if (memberId) {
+    const { data: target, error: targetError } = await supabase
+      .from(DB_TABLES.teamMembers)
+      .select('id, is_leader')
+      .eq('id', memberId)
+      .eq('team_id', teamId)
+      .maybeSingle();
+    if (targetError) throw targetError;
+    if (!target) throw new Error('멤버를 찾을 수 없어요.');
+    if (target.is_leader) throw new Error('리더는 코리더로 지정할 수 없어요.');
+
+    const { error: setError } = await supabase
+      .from(DB_TABLES.teamMembers)
+      .update({ is_co_leader: true })
+      .eq('id', memberId);
+    if (setError) throw setError;
+  }
+
+  const team = await fetchTeamById(teamId);
+  if (!team) throw new Error('팀을 불러오지 못했어요.');
+  return team;
 }

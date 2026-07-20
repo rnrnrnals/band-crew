@@ -2,7 +2,9 @@ import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SquareImageCropSheet } from '../features/media/SquareImageCropSheet';
 import { useApp } from '../state/AppContext';
+import { isLikelyImageFile } from '../utils/prepareProfileImageFile';
 import { ensurePublishedImageUrl } from '../utils/mediaUpload';
+import { normalizeInstagramUsername } from '../utils/teamInstagram';
 import './MyPage.css';
 import './ProfileEditPage.css';
 
@@ -13,13 +15,14 @@ export function UserProfileEditPage() {
   const [name, setName] = useState(user.name);
   const [avatar, setAvatar] = useState(user.avatar);
   const [bio, setBio] = useState(user.bio ?? '');
+  const [instagram, setInstagram] = useState(user.instagram ?? '');
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const onAvatarSelected = (file: File | undefined) => {
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
+    if (!isLikelyImageFile(file)) {
       setError('사진 파일만 선택할 수 있어요.');
       return;
     }
@@ -38,7 +41,12 @@ export function UserProfileEditPage() {
     setError('');
     try {
       const publishedAvatar = await ensurePublishedImageUrl(avatar, 'profiles', user.id);
-      updateUserProfile({ name: trimmed, avatar: publishedAvatar, bio });
+      updateUserProfile({
+        name: trimmed,
+        avatar: publishedAvatar,
+        bio,
+        instagram: normalizeInstagramUsername(instagram),
+      });
       navigate('/my/settings');
     } catch (err) {
       setError(err instanceof Error ? err.message : '저장하지 못했어요.');
@@ -64,7 +72,7 @@ export function UserProfileEditPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
           className="profile-edit-file"
           onChange={(e) => {
             void onAvatarSelected(e.target.files?.[0]);
@@ -81,6 +89,21 @@ export function UserProfileEditPage() {
           placeholder="활동 이름"
           maxLength={20}
         />
+      </div>
+
+      <div className="field">
+        <label htmlFor="user-instagram">인스타그램</label>
+        <input
+          id="user-instagram"
+          value={instagram}
+          onChange={(e) => setInstagram(normalizeInstagramUsername(e.target.value))}
+          placeholder="my_band_id"
+          maxLength={30}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+        />
+        <p className="profile-edit-hint">@ 없이 적어도 돼요. 프로필에서 탭하면 인스타그램으로 이동해요.</p>
       </div>
 
       <div className="field">

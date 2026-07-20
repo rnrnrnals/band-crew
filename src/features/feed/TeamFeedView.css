@@ -3,11 +3,21 @@
 }
 
 .tf-top {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
   align-items: center;
-  justify-content: space-between;
   margin-bottom: 18px;
   gap: 8px;
+  min-height: 36px;
+}
+
+.tf-top-left {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  justify-self: start;
 }
 
 .tf-back {
@@ -26,23 +36,76 @@
 
 .tf-username {
   font-family: 'Space Grotesk', sans-serif;
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
   margin: 0;
   letter-spacing: -0.02em;
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: center;
+  text-align: left;
+}
+
+.tf-practice-now {
+  grid-column: 2;
+  justify-self: center;
+  width: auto;
+  max-width: min(220px, 52vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.tf-practice-now-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--brand-dim);
+  line-height: 1;
+}
+
+.tf-practice-now-title {
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.tf-practice-now:active {
+  background: var(--bg-deep);
+}
+
+.tf-practice-hit {
+  grid-column: 2;
+  justify-self: stretch;
+  align-self: stretch;
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
 }
 
 .tf-settings,
 .tf-settings-spacer {
+  grid-column: 3;
   width: 36px;
   height: 36px;
   flex-shrink: 0;
+  justify-self: end;
 }
 
 .tf-settings {
@@ -124,6 +187,10 @@
   color: inherit;
 }
 
+.tf-avatar-wrap.has-story.is-seen {
+  background: var(--story-ring-seen);
+}
+
 .tf-avatar-wrap.has-story:active {
   opacity: 0.85;
 }
@@ -194,8 +261,16 @@
   margin-bottom: 14px;
 }
 
+.tf-meta-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-bottom: 4px;
+}
+
 .tf-genre {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
@@ -206,6 +281,8 @@
   font-size: 13px;
   color: var(--text-muted);
   line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .tf-actions {

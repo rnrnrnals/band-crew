@@ -12,7 +12,7 @@ import './SchedulePage.css';
 
 export function SchedulePage() {
 
-  const { events, activeTeam, addEvent } = useApp();
+  const { events, activeTeam, addEvent, canManageActiveTeam } = useApp();
 
   const [title, setTitle] = useState('');
 
@@ -94,17 +94,17 @@ export function SchedulePage() {
 
         </div>
 
-        <button type="button" className="btn btn-primary" onClick={() => setOpen((v) => !v)}>
-
-          {open ? '닫기' : '+ 추가'}
-
-        </button>
+        {canManageActiveTeam ? (
+          <button type="button" className="btn btn-primary" onClick={() => setOpen((v) => !v)}>
+            {open ? '닫기' : '+ 추가'}
+          </button>
+        ) : null}
 
       </div>
 
 
 
-      {open && (
+      {open && canManageActiveTeam && (
 
         <div className="card add-form">
 

@@ -21,6 +21,7 @@ export const DB_TABLES = {
   scheduleEvents: 'schedule_events',
   practiceSessions: 'practice_sessions',
   practiceTracks: 'practice_tracks',
+  teamPracticeSongs: 'team_practice_songs',
   chatMessages: 'chat_messages',
 } as const;
 

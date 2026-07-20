@@ -1,0 +1,24 @@
+.practice-song-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.practice-song-fields .field {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.practice-song-fields .field input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+@media (max-width: 420px) {
+  .practice-song-fields {
+    grid-template-columns: 1fr;
+  }
+}

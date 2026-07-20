@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../state/AppContext';
+import { LeaderGate } from '../features/team/LeaderGate';
 import { compressDataUrlImage, prepareMediaBlob, readFileAsDataUrl } from '../utils/fileMedia';
+import { canvasToImageBlob } from '../utils/imageOutput';
 import { ensurePublishedMedia } from '../utils/mediaUpload';
 import {
   DEFAULT_IMAGE_TRANSFORM,
@@ -146,13 +148,9 @@ export function StoryUploadPage() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d')?.drawImage(video, 0, 0);
-    canvas.toBlob(
-      (blob) => {
-        if (blob) setImageFromBlob(blob);
-      },
-      'image/jpeg',
-      0.92,
-    );
+    void canvasToImageBlob(canvas, 0.92).then((blob) => {
+      if (blob) setImageFromBlob(blob);
+    });
   };
 
   const onFileSelected = (file: File | undefined) => {
@@ -341,6 +339,7 @@ export function StoryUploadPage() {
   if (!activeTeam) return null;
 
   return (
+    <LeaderGate backTo="/my">
     <div className="story-studio">
       {step === 'camera' && (
         <>
@@ -488,5 +487,6 @@ export function StoryUploadPage() {
         }}
       />
     </div>
+    </LeaderGate>
   );
 }

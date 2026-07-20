@@ -7,6 +7,7 @@ import type {
   Story,
   TeamAudioTrack,
   TeamHighlight,
+  TeamPracticeSong,
 } from '../types';
 import { fetchAudioForTeamIds, fetchDiscoverAudio } from './audioService';
 import { fetchChatForTeamIds } from './chatService';
@@ -14,6 +15,7 @@ import { fetchFollowersMap, fetchFollowsForTeam } from './followsService';
 import { fetchHighlightsForTeamIds } from './highlightsService';
 import { fetchDiscoverPosts, fetchPostsForTeamIds } from './postsService';
 import { fetchPracticeSessionsForTeamIds } from './practiceService';
+import { fetchTeamPracticeSongsForTeamIds } from './teamPracticeSongService';
 import { fetchScheduleForTeamIds } from './scheduleService';
 import { fetchStoriesForTeamIds } from './storiesService';
 import { fetchMyTeams, fetchTeamsByIds } from './teamsService';
@@ -30,6 +32,7 @@ export interface BootstrapData {
   highlights: TeamHighlight[];
   events: ScheduleEvent[];
   sessions: PracticeSessionMeta[];
+  teamPracticeSongs: TeamPracticeSong[];
   chatMessages: ChatMessage[];
 }
 
@@ -53,6 +56,7 @@ export async function bootstrapUserData(userId: string): Promise<BootstrapData> 
     highlights,
     events,
     sessions,
+    teamPracticeSongs,
     chatMessages,
   ] = await Promise.all([
     fetchTeamsByIds(followingIds.filter((id) => !teams.some((t) => t.id === id))),
@@ -65,6 +69,10 @@ export async function bootstrapUserData(userId: string): Promise<BootstrapData> 
     fetchHighlightsForTeamIds(feedTeamIds),
     fetchScheduleForTeamIds(myTeamIds),
     fetchPracticeSessionsForTeamIds(myTeamIds),
+    fetchTeamPracticeSongsForTeamIds(myTeamIds).catch((err) => {
+      console.warn('[BandCrew] team practice songs bootstrap skipped', err);
+      return [] as TeamPracticeSong[];
+    }),
     fetchChatForTeamIds(chatTeamIds),
   ]);
 
@@ -100,6 +108,7 @@ export async function bootstrapUserData(userId: string): Promise<BootstrapData> 
     highlights,
     events,
     sessions,
+    teamPracticeSongs,
     chatMessages,
   };
 }
