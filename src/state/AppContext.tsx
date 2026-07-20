@@ -1892,6 +1892,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           bio: nextUser.bio ?? '',
           instagram: nextUser.instagram ?? '',
         });
+        try {
+          const team = await fetchTeamById(activeTeamId);
+          if (team) mergeTeam(team);
+        } catch (err) {
+          console.warn('[BandCrew] team refresh after user profile update failed', err);
+        }
       }
     }
   };

@@ -519,7 +519,22 @@ export async function syncMemberProfileInDb(
     .update(updates)
     .eq('team_id', teamId)
     .eq('user_id', userId);
-  if (error) throw error;
+
+  if (error && updates.instagram !== undefined && /instagram|column.*does not exist/i.test(error.message)) {
+    const { instagram: _ignored, ...rest } = updates;
+    if (Object.keys(rest).length === 0) return;
+    const { error: retryError } = await supabase
+      .from(DB_TABLES.teamMembers)
+      .update(rest)
+      .eq('team_id', teamId)
+      .eq('user_id', userId);
+    if (retryError) {
+      throw new Error(formatTeamMutationError(retryError, '멤버 프로필 저장에 실패했어요.'));
+    }
+    return;
+  }
+
+  if (error) throw new Error(formatTeamMutationError(error, '멤버 프로필 저장에 실패했어요.'));
 }
 
 async function assertTeamLeader(teamId: string, userId: string): Promise<void> {

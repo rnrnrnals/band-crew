@@ -248,7 +248,7 @@ export function MySettingsPage() {
 
                 >
 
-                  <ProfileAvatar src={getMemberAvatar(m)} className="member-chip-avatar" />
+                  <ProfileAvatar src={getMemberAvatar(m, user)} className="member-chip-avatar" />
 
                   <span className="chip-text">
                     {m.nick} · {POSITION_LABELS[m.position]}

@@ -36,7 +36,7 @@ export function MemberProfileSheet({
   const [error, setError] = useState('');
   const [photoOpen, setPhotoOpen] = useState(false);
 
-  const avatarUrl = getMemberAvatar(member);
+  const avatarUrl = getMemberAvatar(member, user);
 
   const bio = getMemberBio(member, user);
   const instagram = getMemberInstagram(member, user);
