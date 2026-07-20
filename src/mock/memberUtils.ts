@@ -31,7 +31,10 @@ export function sortMembersWithLeaderFirst(members: TeamMember[]): TeamMember[] 
   });
 }
 
-export function getMemberAvatar(member: TeamMember): string {
+export function getMemberAvatar(member: TeamMember, user?: AppUser): string {
+  if (user && isCurrentMember(member, user)) {
+    return user.avatar?.trim() || member.avatar?.trim() || '';
+  }
   return member.avatar?.trim() ?? '';
 }
 

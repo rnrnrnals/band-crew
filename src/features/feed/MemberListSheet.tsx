@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { BandTeam, TeamMember } from '../../types';
 import { POSITION_LABELS } from '../../mock/positions';
 import { getMemberAvatar, sortMembersWithLeaderFirst } from '../../mock/memberUtils';
+import { useApp } from '../../state/AppContext';
 import { ProfileAvatar } from '../../components/ProfileAvatar';
 import { MemberProfileSheet } from './MemberProfileSheet';
 import './FollowListSheet.css';
@@ -13,6 +14,7 @@ interface MemberListSheetProps {
 }
 
 export function MemberListSheet({ team, onClose }: MemberListSheetProps) {
+  const { user } = useApp();
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
 
   if (selectedMember) {
@@ -56,7 +58,7 @@ export function MemberListSheet({ team, onClose }: MemberListSheetProps) {
                 }`}
                 onClick={() => setSelectedMember(m)}
               >
-                <ProfileAvatar src={getMemberAvatar(m)} className="member-sheet-avatar" />
+                <ProfileAvatar src={getMemberAvatar(m, user)} className="member-sheet-avatar" />
                 <div>
                   <strong>{m.nick}</strong>
                   <span>{POSITION_LABELS[m.position]}</span>

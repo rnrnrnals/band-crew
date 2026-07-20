@@ -9,6 +9,15 @@ import { ProfileAvatar } from '../components/ProfileAvatar';
 import './MyPage.css';
 import './ProfileEditPage.css';
 
+function readSaveError(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) return err.message;
+  if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
+    const message = err.message.trim();
+    if (message) return message;
+  }
+  return '저장하지 못했어요.';
+}
+
 export function UserProfileEditPage() {
   const { user, activeTeam, updateUserProfile } = useApp();
   const navigate = useNavigate();
@@ -49,7 +58,7 @@ export function UserProfileEditPage() {
         instagram: normalizeInstagramUsername(instagram),
       });
     } catch (err) {
-      setError(err instanceof Error && err.message.trim() ? err.message : '저장하지 못했어요.');
+      setError(readSaveError(err));
       setSaving(false);
       return;
     }
