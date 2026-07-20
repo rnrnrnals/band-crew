@@ -183,9 +183,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateRemoteProfile = useCallback(
     async (patch: { name?: string; avatar?: string; bio?: string; instagram?: string }) => {
-      if (!session?.user) return;
+      if (!session?.user) throw new Error('로그인이 필요해요.');
       const supabase = getSupabase();
-      if (!supabase) return;
+      if (!supabase) throw new Error('Supabase가 설정되지 않았어요.');
 
       const updates: Partial<DbProfile> = {};
       if (patch.name !== undefined) updates.display_name = patch.name.trim();
@@ -195,14 +195,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (Object.keys(updates).length === 0) return;
 
-      const { error } = await supabase
+      const userId = session.user.id;
+      const { data: existing, error: readError } = await supabase
         .from(DB_TABLES.profiles)
-        .update(updates)
-        .eq('id', session.user.id);
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
 
-      if (error) {
-        console.warn('[BandCrew] profile update failed', error.message);
-        return;
+      if (readError) throw new Error(readError.message);
+
+      if (!existing) {
+        const baseRow = {
+          id: userId,
+          display_name: updates.display_name ?? session.user.email?.split('@')[0] ?? 'User',
+          avatar_url: updates.avatar_url ?? '',
+          bio: updates.bio ?? '',
+        };
+        const withInstagram =
+          updates.instagram !== undefined
+            ? { ...baseRow, instagram: updates.instagram }
+            : baseRow;
+        const { error: insertError } = await supabase.from(DB_TABLES.profiles).insert(withInstagram);
+        if (insertError && updates.instagram !== undefined && /instagram|column.*does not exist/i.test(insertError.message)) {
+          const { error: retryError } = await supabase.from(DB_TABLES.profiles).insert(baseRow);
+          if (retryError) throw new Error(retryError.message);
+        } else if (insertError) {
+          throw new Error(insertError.message);
+        }
+      } else {
+        const { error } = await supabase.from(DB_TABLES.profiles).update(updates).eq('id', userId);
+        if (error && updates.instagram !== undefined && /instagram|column.*does not exist/i.test(error.message)) {
+          const { instagram: _ignored, ...rest } = updates;
+          if (Object.keys(rest).length > 0) {
+            const { error: retryError } = await supabase.from(DB_TABLES.profiles).update(rest).eq('id', userId);
+            if (retryError) throw new Error(retryError.message);
+          }
+        } else if (error) {
+          throw new Error(error.message);
+        }
       }
 
       await loadProfile(session.user);

@@ -29,6 +29,12 @@ export async function fetchScheduleForTeamIds(teamIds: string[]): Promise<Schedu
   );
 }
 
+export async function deleteScheduleEventInDb(eventId: string): Promise<void> {
+  const supabase = requireSupabase();
+  const { error } = await supabase.from(DB_TABLES.scheduleEvents).delete().eq('id', eventId);
+  if (error) throw error;
+}
+
 export async function createScheduleEventInDb(input: Omit<ScheduleEvent, 'id'>): Promise<ScheduleEvent> {
   const supabase = requireSupabase();
   const { data, error } = await supabase

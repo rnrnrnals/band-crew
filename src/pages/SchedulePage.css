@@ -75,6 +75,21 @@
   color: var(--brand);
 }
 
+.event-delete {
+  flex-shrink: 0;
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.event-delete:hover {
+  color: #e07070;
+}
+
 .empty {
   color: var(--text-faint);
   text-align: center;

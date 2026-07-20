@@ -11,6 +11,26 @@ import { isInviteCodeActive } from '../utils/inviteUtils';
 import { createRandomInviteCode } from '../utils/inviteUtils';
 
 const DEFAULT_COVER = '';
+const TEAM_NAME_TAKEN_MESSAGE = '이미 사용 중인 팀 이름이에요.';
+
+export function normalizeTeamName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ko-KR');
+}
+
+export async function isTeamNameTaken(name: string): Promise<boolean> {
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+
+  const supabase = requireSupabase();
+  const { data, error } = await supabase
+    .from(DB_TABLES.teams)
+    .select('id')
+    .ilike('name', trimmed)
+    .limit(1);
+
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
+}
 
 function formatTeamMutationError(err: unknown, fallback: string): string {
   const message =
@@ -25,6 +45,9 @@ function formatTeamMutationError(err: unknown, fallback: string): string {
   }
   if (/team_members_team_id_nick_key|duplicate key.*nick/i.test(message)) {
     return '이 팀에서 이미 사용 중인 닉네임이에요.';
+  }
+  if (/team name already exists|teams_name_key|duplicate key.*name/i.test(message)) {
+    return TEAM_NAME_TAKEN_MESSAGE;
   }
   if (/row-level security|permission denied|42501/i.test(message)) {
     return '권한이 없어요. 다시 로그인한 뒤 시도해 주세요.';
@@ -225,6 +248,12 @@ export async function createTeamInDb(
   nick: string,
   position: PositionId,
 ): Promise<BandTeam> {
+  const trimmedName = name.trim();
+  if (!trimmedName) throw new Error('팀 이름을 입력해주세요.');
+  if (await isTeamNameTaken(trimmedName)) {
+    throw new Error(TEAM_NAME_TAKEN_MESSAGE);
+  }
+
   const supabase = requireSupabase();
 
   const { data: teamId, error: rpcError } = await supabase.rpc('create_team_with_leader', {
@@ -340,6 +369,22 @@ export async function setActiveTeamInDb(userId: string, teamId: string): Promise
   if (error) throw error;
 }
 
+async function deleteEmptyTeamInDb(teamId: string): Promise<void> {
+  const supabase = requireSupabase();
+  const { error } = await supabase.rpc('delete_empty_team', { p_team_id: teamId });
+  if (error && !isMissingRpcFunction(error)) {
+    throw error;
+  }
+}
+
+export async function cleanupEmptyTeamsInDb(): Promise<void> {
+  const supabase = requireSupabase();
+  const { error } = await supabase.rpc('cleanup_empty_teams');
+  if (error && !isMissingRpcFunction(error)) {
+    console.warn('[BandCrew] cleanupEmptyTeams failed', error.message);
+  }
+}
+
 export async function leaveTeamInDb(
   userId: string,
   teamId: string,
@@ -377,6 +422,8 @@ export async function leaveTeamInDb(
     .eq('team_id', teamId)
     .eq('user_id', userId);
   if (deleteError) throw deleteError;
+
+  await deleteEmptyTeamInDb(teamId);
 
   const { data: profile, error: profileError } = await supabase
     .from(DB_TABLES.profiles)
