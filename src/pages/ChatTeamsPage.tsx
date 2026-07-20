@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useApp } from '../state/AppContext';
 import { getCrossTeamThreadId, getCrossTeamThreadPreview } from '../utils/chatUtils';
+import { ProfileAvatar } from '../components/ProfileAvatar';
 import './MyPage.css';
 import './ChatTeamsPage.css';
 
@@ -31,7 +32,7 @@ export function ChatTeamsPage() {
           return (
             <li key={team.id}>
               <Link to={`/chat/team/${team.id}`} className="chat-teams-row card">
-                <img src={team.cover} alt="" />
+                <ProfileAvatar src={team.cover} square className="chat-teams-avatar" />
                 <div>
                   <strong>{team.name}</strong>
                   <span>{team.genre}</span>

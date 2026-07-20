@@ -222,6 +222,11 @@
   border: 3px solid var(--bg-deep);
 }
 
+.tf-avatar.profile-avatar-empty {
+  border-color: var(--hairline);
+  background: var(--surface-raised);
+}
+
 .tf-stats {
   flex: 1;
   display: flex;

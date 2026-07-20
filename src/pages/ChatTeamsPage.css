@@ -28,6 +28,7 @@
   opacity: 0.85;
 }
 
+.chat-teams-avatar,
 .chat-teams-row img {
   width: 52px;
   height: 52px;

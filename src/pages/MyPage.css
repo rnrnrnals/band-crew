@@ -36,6 +36,7 @@
 .me-card .profile-avatar-empty {
   width: 52px;
   height: 52px;
+  border: 1px solid var(--hairline);
 }
 
 .me-card div {
@@ -125,10 +126,12 @@
   color: #4dabf7;
 }
 
-.member-chip-avatar {
+.member-chip-avatar,
+.member-chip-avatar.profile-avatar-empty {
   width: 32px;
   height: 32px;
   flex-shrink: 0;
+  border: 1px solid var(--hairline);
 }
 
 .code {

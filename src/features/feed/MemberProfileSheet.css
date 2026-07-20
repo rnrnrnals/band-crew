@@ -42,13 +42,18 @@
   opacity: 0.92;
 }
 
-.member-profile-avatar {
+.member-profile-avatar,
+.member-profile-avatar.profile-avatar-empty {
   width: 88px;
   height: 88px;
   border-radius: 50%;
   object-fit: cover;
   border: 3px solid var(--hairline);
   display: block;
+}
+
+.member-profile-avatar.profile-avatar-empty {
+  background: var(--surface-raised);
 }
 
 .member-profile-body strong {

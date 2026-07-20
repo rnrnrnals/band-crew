@@ -46,12 +46,14 @@
   opacity: 0.75;
 }
 
+.feed-team-avatar,
 .feed-team img {
   width: 36px;
   height: 36px;
   border-radius: 50%;
   object-fit: cover;
   border: 1px solid var(--hairline);
+  flex-shrink: 0;
 }
 
 .feed-team div {

@@ -4,6 +4,7 @@ import type { Story } from '../../types';
 import { useApp } from '../../state/AppContext';
 import { formatRelativeTime } from '../../utils/timeUtils';
 import { markStorySeen } from '../../utils/storySeenStorage';
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import './StoryViewer.css';
 
 function buildPlaylist(
@@ -136,7 +137,7 @@ export function StoryViewer({
           ))}
         </div>
         <div className="story-head">
-          <img src={team.cover} alt="" />
+          <ProfileAvatar src={team.cover} className="story-viewer-avatar" />
           <div className="story-head-meta">
             <div className="story-head-row">
               <Link to={teamFeedPath} className="story-head-team" onClick={onClose}>

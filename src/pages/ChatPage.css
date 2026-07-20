@@ -94,7 +94,8 @@
   align-self: flex-start;
 }
 
-.chat-avatar {
+.chat-avatar,
+.chat-avatar.profile-avatar-empty {
   width: 32px;
   height: 32px;
   border-radius: 50%;
