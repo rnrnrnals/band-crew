@@ -12,6 +12,7 @@ import {
 } from '../utils/fileMedia';
 import { ensurePublishedMedia } from '../utils/mediaUpload';
 import { VideoTrimSheet } from '../features/media/VideoTrimSheet';
+import { VideoCropSheet } from '../features/media/VideoCropSheet';
 import './UploadPage.css';
 
 type MediaType = 'video' | 'image' | 'text';
@@ -27,6 +28,7 @@ export function UploadPage() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [trimVideo, setTrimVideo] = useState<{ file: File; name: string } | null>(null);
+  const [cropVideo, setCropVideo] = useState<{ file: File; name: string } | null>(null);
 
   const clearAttachment = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -63,6 +65,10 @@ export function UploadPage() {
     setPreviewUrl(URL.createObjectURL(preview));
   };
 
+  const openVideoCrop = (file: File, name = file.name) => {
+    setCropVideo({ file, name });
+  };
+
   const onFileSelected = async (file: File | null) => {
     setError('');
     if (!file) {
@@ -84,6 +90,8 @@ export function UploadPage() {
         setTrimVideo({ file, name: file.name });
         return;
       }
+      openVideoCrop(file);
+      return;
     }
 
     applyVideoFile(file);
@@ -93,8 +101,22 @@ export function UploadPage() {
     if (!trimVideo) return;
     const base = trimVideo.name.replace(/\.[^.]+$/, '') || 'video';
     const nextFile = new File([trimmed], `${base}-clip.webm`, { type: trimmed.type || 'video/webm' });
-    applyVideoFile(nextFile, trimmed);
     setTrimVideo(null);
+    openVideoCrop(nextFile, `${base}-clip.webm`);
+  };
+
+  const handleCropConfirm = (cropped: Blob) => {
+    if (!cropVideo) return;
+    const base = cropVideo.name.replace(/\.[^.]+$/, '') || 'video';
+    const nextFile = new File([cropped], `${base}-frame.webm`, {
+      type: cropped.type || 'video/webm',
+    });
+    applyVideoFile(nextFile, cropped);
+    setCropVideo(null);
+  };
+
+  const handleCropClose = () => {
+    setCropVideo(null);
   };
 
   const submit = async () => {
@@ -177,7 +199,9 @@ export function UploadPage() {
           />
 
           {previewUrl ? (
-            <div className="upload-preview">
+            <div
+              className={`upload-preview${mediaType === 'video' ? ' upload-preview--video-frame' : ''}`}
+            >
               {mediaType === 'image' ? (
                 <img src={previewUrl} alt="" />
               ) : (
@@ -198,7 +222,7 @@ export function UploadPage() {
               <span>
                 {mediaType === 'image'
                   ? `갤러리에서 사진을 고르세요 (자동 ${formatMaxSize(CHAT_MAX_IMAGE_BYTES)} 이하)`
-                  : `갤러리에서 영상을 고르세요 (최대 5분 · 자동 ${formatMaxSize(CHAT_MAX_VIDEO_BYTES)} 이하)`}
+                  : `갤러리에서 영상을 고르세요 (최대 5분 · 4:5 프레임 맞춤 · 자동 ${formatMaxSize(CHAT_MAX_VIDEO_BYTES)} 이하)`}
               </span>
             </button>
           )}
@@ -231,6 +255,14 @@ export function UploadPage() {
           fileName={trimVideo.name}
           onClose={() => setTrimVideo(null)}
           onConfirm={handleTrimConfirm}
+        />
+      )}
+      {cropVideo && (
+        <VideoCropSheet
+          file={cropVideo.file}
+          fileName={cropVideo.name}
+          onClose={handleCropClose}
+          onConfirm={handleCropConfirm}
         />
       )}
     </div>

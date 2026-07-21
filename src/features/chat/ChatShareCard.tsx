@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import type { SharedContent } from '../../utils/contentShare';
 import './ChatShareCard.css';
 
@@ -9,10 +8,15 @@ function formatDuration(sec?: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export function ChatShareCard({ content }: { content: SharedContent }) {
+interface ChatShareCardProps {
+  content: SharedContent;
+  onOpen: (content: SharedContent) => void;
+}
+
+export function ChatShareCard({ content, onOpen }: ChatShareCardProps) {
   if (content.type === 'post') {
     return (
-      <Link to={`/team/${content.teamId}`} className="chat-share-card">
+      <button type="button" className="chat-share-card" onClick={() => onOpen(content)}>
         {content.mediaUrl && content.mediaType !== 'text' ? (
           <div className="chat-share-thumb">
             {content.mediaType === 'video' ? (
@@ -27,12 +31,12 @@ export function ChatShareCard({ content }: { content: SharedContent }) {
           <strong>{content.teamName}</strong>
           <p>{content.caption || '게시물'}</p>
         </div>
-      </Link>
+      </button>
     );
   }
 
   return (
-    <Link to={`/team/${content.teamId}`} className="chat-share-card">
+    <button type="button" className="chat-share-card" onClick={() => onOpen(content)}>
       {content.coverImage ? (
         <div className="chat-share-thumb">
           <img src={content.coverImage} alt="" />
@@ -51,6 +55,6 @@ export function ChatShareCard({ content }: { content: SharedContent }) {
           {content.durationSec != null ? ` · ${formatDuration(content.durationSec)}` : ''}
         </p>
       </div>
-    </Link>
+    </button>
   );
 }

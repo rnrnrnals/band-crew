@@ -17,7 +17,8 @@ import { fetchDiscoverPosts, fetchPostsForTeamIds } from './postsService';
 import { fetchPracticeSessionsForTeamIds } from './practiceService';
 import { fetchTeamPracticeSongsForTeamIds } from './teamPracticeSongService';
 import { fetchScheduleForTeamIds } from './scheduleService';
-import { fetchStoriesForTeamIds } from './storiesService';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { fetchStoriesForTeamIds, purgeExpiredStoriesInDb } from './storiesService';
 import { fetchMyTeams, fetchTeamsByIds } from './teamsService';
 
 export interface BootstrapData {
@@ -37,6 +38,14 @@ export interface BootstrapData {
 }
 
 export async function bootstrapUserData(userId: string): Promise<BootstrapData> {
+  if (isSupabaseConfigured) {
+    try {
+      await purgeExpiredStoriesInDb();
+    } catch (err) {
+      console.warn('[BandCrew] expired story purge failed', err);
+    }
+  }
+
   const { teams, myTeamIds, activeTeamId } = await fetchMyTeams(userId);
 
   const followingIds = activeTeamId ? await fetchFollowsForTeam(activeTeamId) : [];

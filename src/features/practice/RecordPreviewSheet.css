@@ -1,0 +1,74 @@
+.record-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(23, 20, 15, 0.78);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 12px;
+}
+
+.record-preview-sheet {
+  width: min(480px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 18px 18px 14px 14px;
+  padding: 18px;
+}
+
+.record-preview-head h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  text-align: center;
+}
+
+.record-preview-sub {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.record-preview-player {
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.18);
+  margin-bottom: 12px;
+}
+
+.record-preview-player video {
+  width: 100%;
+  display: block;
+  max-height: 240px;
+  background: #000;
+}
+
+.record-preview-wave {
+  width: 100%;
+  height: 56px;
+  display: block;
+}
+
+.record-preview-player audio {
+  width: 100%;
+  display: block;
+  padding: 8px 10px 10px;
+  box-sizing: border-box;
+}
+
+.record-preview-hint {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.record-preview-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.record-preview-actions .btn {
+  flex: 1;
+}

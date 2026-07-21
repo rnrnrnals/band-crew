@@ -1,7 +1,9 @@
 import type { HighlightItem, Story, TeamHighlight } from '../types';
 import { DB_TABLES } from '../lib/databaseTables';
 import { requireSupabase } from '../lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { mapHighlight, mapHighlightItem } from '../lib/supabaseMappers';
+import { deleteStorageUrls, isStoragePublicUrl } from './storageService';
 
 type DbHighlight = {
   id: string;
@@ -19,6 +21,37 @@ type DbHighlightItem = {
   source_story_id: string | null;
   sort_order: number;
 };
+
+async function deleteOrphanHighlightImageUrls(
+  supabase: SupabaseClient,
+  urls: string[],
+): Promise<void> {
+  const unique = [...new Set(urls.filter((url) => isStoragePublicUrl(url)))];
+  if (unique.length === 0) return;
+
+  const stillUsed = new Set<string>();
+
+  const { data: storyRows, error: storyError } = await supabase
+    .from(DB_TABLES.stories)
+    .select('image_url')
+    .in('image_url', unique);
+  if (storyError) throw storyError;
+  for (const row of storyRows ?? []) {
+    if (row.image_url) stillUsed.add(row.image_url as string);
+  }
+
+  const { data: itemRows, error: itemError } = await supabase
+    .from(DB_TABLES.highlightItems)
+    .select('image_url')
+    .in('image_url', unique);
+  if (itemError) throw itemError;
+  for (const row of itemRows ?? []) {
+    if (row.image_url) stillUsed.add(row.image_url as string);
+  }
+
+  const deletable = unique.filter((url) => !stillUsed.has(url));
+  await deleteStorageUrls(...deletable);
+}
 
 export async function fetchHighlightsForTeamIds(teamIds: string[]): Promise<TeamHighlight[]> {
   if (teamIds.length === 0) return [];
@@ -128,11 +161,25 @@ export async function updateHighlightInDb(
     const items = storiesToItems(patch.storyIds, stories);
     if (items.length === 0) throw new Error('하이라이트에 넣을 스토리가 없어요');
 
+    const { data: previousItems, error: previousError } = await supabase
+      .from(DB_TABLES.highlightItems)
+      .select('image_url')
+      .eq('highlight_id', highlightId);
+    if (previousError) throw previousError;
+
     const { error: deleteError } = await supabase
       .from(DB_TABLES.highlightItems)
       .delete()
       .eq('highlight_id', highlightId);
     if (deleteError) throw deleteError;
+
+    const nextUrls = new Set(items.map((item) => item.image));
+    const orphanUrls = ((previousItems ?? []) as { image_url: string }[])
+      .map((row) => row.image_url)
+      .filter((url) => url && !nextUrls.has(url));
+    if (orphanUrls.length > 0) {
+      await deleteOrphanHighlightImageUrls(supabase, orphanUrls);
+    }
 
     const { error: insertError } = await supabase.from(DB_TABLES.highlightItems).insert(
       items.map((item, index) => ({
@@ -243,6 +290,26 @@ export async function appendHighlightStoriesInDb(
 
 export async function deleteHighlightInDb(highlightId: string): Promise<void> {
   const supabase = requireSupabase();
+
+  const { data: highlightRow, error: highlightError } = await supabase
+    .from(DB_TABLES.highlights)
+    .select('cover_image_url')
+    .eq('id', highlightId)
+    .maybeSingle();
+  if (highlightError) throw highlightError;
+
+  const { data: itemRows, error: itemError } = await supabase
+    .from(DB_TABLES.highlightItems)
+    .select('image_url')
+    .eq('highlight_id', highlightId);
+  if (itemError) throw itemError;
+
   const { error } = await supabase.from(DB_TABLES.highlights).delete().eq('id', highlightId);
   if (error) throw error;
+
+  const urls = [
+    highlightRow?.cover_image_url as string | undefined,
+    ...((itemRows ?? []) as { image_url: string }[]).map((row) => row.image_url),
+  ].filter((url): url is string => Boolean(url));
+  await deleteOrphanHighlightImageUrls(supabase, urls);
 }

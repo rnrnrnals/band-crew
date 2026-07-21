@@ -2,14 +2,19 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import type { BandTeam, ChatMessage } from '../types';
 import { useApp } from '../state/AppContext';
+import { useAuth } from '../state/AuthContext';
+import { useConfirm } from '../components/ConfirmDialog';
 import { findCurrentMember, getMemberAvatar } from '../mock/memberUtils';
-import { getCrossTeamThreadId } from '../utils/chatUtils';
+import { getCrossTeamThreadId, isOwnChatMessage } from '../utils/chatUtils';
 import { prepareMediaBlob, getVideoDuration, videoNeedsTrim, MAX_VIDEO_DURATION_SEC } from '../utils/fileMedia';
 import { canvasToImageBlob } from '../utils/imageOutput';
 import { ensurePublishedMedia } from '../utils/mediaUpload';
 import { VideoTrimSheet } from '../features/media/VideoTrimSheet';
 import { ChatShareCard } from '../features/chat/ChatShareCard';
-import { parseShareMessage } from '../utils/contentShare';
+import { ChatMessageBubble } from '../features/chat/ChatMessageBubble';
+import { PostDetailSheet } from '../features/feed/PostDetailSheet';
+import { SoundDetailSheet } from '../features/feed/SoundDetailSheet';
+import { parseShareMessage, type SharedContent } from '../utils/contentShare';
 import { ProfileAvatar } from '../components/ProfileAvatar';
 import './MyPage.css';
 import './ChatPage.css';
@@ -94,14 +99,20 @@ function IconTeamChats() {
 
 type MediaPickerKind = 'image' | 'video';
 
-function ChatBubbleContent({ message }: { message: ChatMessage }) {
+function ChatBubbleContent({
+  message,
+  onOpenShare,
+}: {
+  message: ChatMessage;
+  onOpenShare: (content: SharedContent) => void;
+}) {
   const kind = messageKind(message);
   const shared = kind === 'text' ? parseShareMessage(message.text) : null;
 
   if (shared) {
     return (
       <div className="chat-bubble-share">
-        <ChatShareCard content={shared} />
+        <ChatShareCard content={shared} onOpen={onOpenShare} />
       </div>
     );
   }
@@ -158,9 +169,24 @@ interface ChatRoomProps {
 }
 
 function ChatRoom({ peerTeamId, peerTeam }: ChatRoomProps) {
-  const { activeTeam, chatMessages, sendChatMessage, user } = useApp();
+  const { session: authSession } = useAuth();
+  const userId = authSession?.user.id;
+  const {
+    activeTeam,
+    chatMessages,
+    sendChatMessage,
+    updateChatMessage,
+    deleteChatMessage,
+    user,
+    posts,
+    teamAudios,
+    canManageTeam,
+  } = useApp();
+  const confirm = useConfirm();
   const [text, setText] = useState('');
   const [error, setError] = useState('');
+  const [openPostId, setOpenPostId] = useState<string | null>(null);
+  const [openSoundId, setOpenSoundId] = useState<string | null>(null);
   const [sendingMedia, setSendingMedia] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [mediaPicker, setMediaPicker] = useState<MediaPickerKind | null>(null);
@@ -567,6 +593,46 @@ function ChatRoom({ peerTeamId, peerTeam }: ChatRoomProps) {
     setText('');
   };
 
+  const openSharedContent = (content: SharedContent) => {
+    setError('');
+    if (content.type === 'post') {
+      if (!content.postId || !posts.some((post) => post.id === content.postId)) {
+        setError('게시물을 불러올 수 없어요.');
+        return;
+      }
+      setOpenPostId(content.postId);
+      return;
+    }
+    if (!content.trackId || !teamAudios.some((track) => track.id === content.trackId)) {
+      setError('사운드를 불러올 수 없어요.');
+      return;
+    }
+    setOpenSoundId(content.trackId);
+  };
+
+  const handleEditMessage = async (messageId: string, text: string) => {
+    setError('');
+    try {
+      await updateChatMessage(messageId, text);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '메시지를 수정하지 못했어요.');
+      throw err;
+    }
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!(await confirm('이 메시지를 삭제할까요?'))) return;
+    setError('');
+    try {
+      await deleteChatMessage(messageId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '메시지를 삭제하지 못했어요.');
+    }
+  };
+
+  const openPost = openPostId ? posts.find((post) => post.id === openPostId) : undefined;
+  const openTrack = openSoundId ? teamAudios.find((track) => track.id === openSoundId) : undefined;
+
   if (!activeTeam) return null;
 
   const composeLocked =
@@ -612,7 +678,8 @@ function ChatRoom({ peerTeamId, peerTeam }: ChatRoomProps) {
                       position: 'other',
                     },
                   ));
-            const isMedia = messageKind(m) !== 'text';
+            const isMedia = !m.deletedAt && messageKind(m) !== 'text';
+            const canManage = isOwnChatMessage(m, userId, myNick, activeTeam.id, peerTeamId);
 
             return (
               <div key={m.id} className={`chat-row ${mine ? 'mine' : 'theirs'}`}>
@@ -623,10 +690,19 @@ function ChatRoom({ peerTeamId, peerTeam }: ChatRoomProps) {
                       {peerTeam && m.teamId === peerTeam.id ? peerTeam.name : m.authorNick}
                     </span>
                   )}
-                  <div className={`chat-bubble ${isMedia ? 'media' : ''}`}>
-                    <ChatBubbleContent message={m} />
-                    <time>{formatTime(m.createdAt)}</time>
-                  </div>
+                  <ChatMessageBubble
+                    message={m}
+                    mine={mine}
+                    canManage={canManage}
+                    isMedia={isMedia}
+                    timestamp={<time>{formatTime(m.createdAt)}</time>}
+                    onEdit={handleEditMessage}
+                    onDelete={handleDeleteMessage}
+                  >
+                    <div className={isMedia ? 'chat-bubble-media' : undefined}>
+                      <ChatBubbleContent message={m} onOpenShare={openSharedContent} />
+                    </div>
+                  </ChatMessageBubble>
                 </div>
               </div>
             );
@@ -842,6 +918,22 @@ function ChatRoom({ peerTeamId, peerTeam }: ChatRoomProps) {
           onConfirm={handleTrimConfirm}
         />
       )}
+
+      {openPostId && openPost ? (
+        <PostDetailSheet
+          postId={openPostId}
+          canDelete={canManageTeam(openPost.teamId)}
+          onClose={() => setOpenPostId(null)}
+        />
+      ) : null}
+
+      {openSoundId && openTrack ? (
+        <SoundDetailSheet
+          trackId={openSoundId}
+          canDelete={canManageTeam(openTrack.teamId)}
+          onClose={() => setOpenSoundId(null)}
+        />
+      ) : null}
     </div>
   );
 }

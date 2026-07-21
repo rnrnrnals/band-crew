@@ -28,6 +28,8 @@ type DbPracticeTrackRow = {
   sort_order: number;
   author_user_id: string | null;
   sync_offset_sec: number;
+  trim_start_sec?: number;
+  trim_end_sec?: number;
   volume: number;
 };
 
@@ -46,6 +48,8 @@ function mapRow(row: DbPracticeTrackRow): StoredPracticeTrack {
     kind: row.kind,
     authorUserId: row.author_user_id ?? undefined,
     syncOffsetSec: Number(row.sync_offset_sec) || 0,
+    trimStartSec: Number(row.trim_start_sec) || 0,
+    trimEndSec: Number(row.trim_end_sec) || 0,
   };
 }
 
@@ -93,6 +97,8 @@ function withStoredMediaUrl(
     mediaUrl,
     authorUserId: track.authorUserId ?? prev?.authorUserId,
     syncOffsetSec: track.syncOffsetSec ?? prev?.syncOffsetSec ?? 0,
+    trimStartSec: track.trimStartSec ?? prev?.trimStartSec ?? 0,
+    trimEndSec: track.trimEndSec ?? prev?.trimEndSec ?? 0,
     volume: track.volume ?? prev?.volume ?? 1,
   };
 }
@@ -126,6 +132,8 @@ function buildTrackRows(
     ...base,
     volume,
     sync_offset_sec: track.syncOffsetSec ?? 0,
+    trim_start_sec: track.trimStartSec ?? 0,
+    trim_end_sec: track.trimEndSec ?? 0,
   };
   if (track.authorUserId) full.author_user_id = track.authorUserId;
   return [full, base];
@@ -207,6 +215,8 @@ export async function updatePracticeTrackMetaInDb(
     sortOrder?: number;
     color?: string;
     syncOffsetSec?: number;
+    trimStartSec?: number;
+    trimEndSec?: number;
   },
 ): Promise<void> {
   const supabase = requireSupabase();
@@ -231,6 +241,8 @@ export async function updatePracticeTrackMetaInDb(
     base.color = patch.color;
   }
   if (patch.syncOffsetSec !== undefined) full.sync_offset_sec = patch.syncOffsetSec;
+  if (patch.trimStartSec !== undefined) full.trim_start_sec = patch.trimStartSec;
+  if (patch.trimEndSec !== undefined) full.trim_end_sec = patch.trimEndSec;
 
   const candidates = Object.keys(full).length ? [full, base] : [];
   if (candidates.length === 0) return;

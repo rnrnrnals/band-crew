@@ -16,6 +16,8 @@ export interface StoredPracticeTrack {
   kind: MediaKind;
   authorUserId?: string;
   syncOffsetSec?: number;
+  trimStartSec?: number;
+  trimEndSec?: number;
 }
 
 const LS_KEY = 'band-crew-practice-tracks-v1';
@@ -59,4 +61,17 @@ export function deleteSessionTracks(sessionId: string) {
   const all = loadAll();
   delete all[sessionId];
   saveAll(all);
+}
+
+export function purgePracticeTracksForSessions(sessionIds: string[]) {
+  if (sessionIds.length === 0) return;
+  const all = loadAll();
+  let changed = false;
+  for (const sessionId of sessionIds) {
+    if (all[sessionId]) {
+      delete all[sessionId];
+      changed = true;
+    }
+  }
+  if (changed) saveAll(all);
 }

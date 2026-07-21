@@ -273,6 +273,7 @@
 .track-body {
   flex: 1;
   min-width: 0;
+  overflow: visible;
 }
 
 .track-meta {
@@ -291,17 +292,11 @@
 .track-name {
   flex: 1;
   min-width: 0;
-  background: none;
-  border: none;
-  border-bottom: 1px solid transparent;
   font-weight: 600;
   font-size: 13px;
-  padding: 0;
-}
-
-.track-name:focus {
-  outline: none;
-  border-bottom-color: var(--c);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .track-delete {
@@ -320,11 +315,23 @@
 
 .waveform {
   position: relative;
+  display: block;
+  width: 100%;
   height: 40px;
   margin-top: 6px;
+  padding: 0;
+  border: none;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.22);
   overflow: hidden;
+}
+
+.waveform--tap {
+  cursor: pointer;
+}
+
+.waveform--tap:active {
+  opacity: 0.92;
 }
 
 .waveform-clip {
@@ -334,12 +341,7 @@
   bottom: 0;
   overflow: hidden;
   transition: left 0.08s ease-out;
-}
-
-.waveform-canvas-wrap {
-  width: 100%;
-  height: 100%;
-  transition: transform 0.08s ease-out;
+  z-index: 1;
 }
 
 .waveform-clip canvas {
@@ -357,6 +359,8 @@
   background: #f2e8d8;
   box-shadow: 0 0 8px rgba(224, 160, 74, 0.5);
   display: none;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .waveform.is-playing .playhead {
@@ -428,6 +432,12 @@
   width: 26px;
   font-size: 7px;
   letter-spacing: -0.5px;
+}
+
+.sync-btn-wide {
+  width: 30px;
+  font-size: 6px;
+  letter-spacing: -1px;
 }
 
 .sync-btn:hover {
@@ -569,13 +579,10 @@
   height: 100%;
 }
 
-.pos-card input {
-  width: 100%;
-  font-size: 10px;
-  padding: 4px;
-  border-radius: 6px;
-  border: 1px solid var(--hairline);
-  background: var(--surface);
+.pos-nick-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--text-muted);
   text-align: center;
 }
 

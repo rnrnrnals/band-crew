@@ -11,6 +11,7 @@ export function PracticePage() {
   );
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
+  const [newBpm, setNewBpm] = useState(92);
   const [error, setError] = useState('');
 
   const activeSession = teamSessions.find((s) => s.id === activeSessionId);
@@ -31,8 +32,14 @@ export function PracticePage() {
       setError('제목을 입력해 주세요.');
       return;
     }
-    const session = addSession(title, 92);
+    const bpm = Number.isFinite(newBpm) ? Math.round(newBpm) : NaN;
+    if (!Number.isFinite(bpm) || bpm < 20 || bpm > 300) {
+      setError('매트로놈 템포는 20~300 사이로 입력해 주세요.');
+      return;
+    }
+    const session = addSession(title, bpm);
     setNewTitle('');
+    setNewBpm(92);
     setError('');
     setActiveSessionId(session.id);
   };
@@ -53,6 +60,17 @@ export function PracticePage() {
             onChange={(event) => setNewTitle(event.target.value)}
             placeholder="곡명, 셋리스트 메모, 연습 날짜…"
             maxLength={80}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="practice-session-bpm">매트로놈 템포 (BPM)</label>
+          <input
+            id="practice-session-bpm"
+            type="number"
+            value={newBpm}
+            min={20}
+            max={300}
+            onChange={(event) => setNewBpm(parseInt(event.target.value, 10) || 0)}
           />
         </div>
         {error ? <p className="practice-page-error">{error}</p> : null}

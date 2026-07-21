@@ -138,12 +138,15 @@ export interface ChatMessage {
   id: string;
   teamId: string;
   chatThreadId?: string;
+  authorUserId?: string;
   authorNick: string;
   authorAvatar?: string;
   kind?: 'text' | 'image' | 'video' | 'audio';
   text?: string;
   mediaUrl?: string;
   createdAt: string;
+  editedAt?: string;
+  deletedAt?: string;
 }
 
 export type ChatMessageKind = NonNullable<ChatMessage['kind']>;

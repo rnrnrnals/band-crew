@@ -20,6 +20,25 @@ const MIME_EXT: Record<string, string> = {
   'audio/aac': 'aac',
 };
 
+const TEAM_STORAGE_FOLDERS: MediaFolder[] = [
+  'posts',
+  'stories',
+  'audio',
+  'chat',
+  'practice',
+  'teams',
+];
+
+export class StorageDeleteError extends Error {
+  readonly paths: string[];
+
+  constructor(message: string, paths: string[] = []) {
+    super(message);
+    this.name = 'StorageDeleteError';
+    this.paths = paths;
+  }
+}
+
 function extensionFromBlob(blob: Blob): string {
   const fromMime = blob.type ? MIME_EXT[blob.type.toLowerCase()] : undefined;
   if (fromMime) return fromMime;
@@ -71,7 +90,7 @@ export function isStoragePublicUrl(url: string | null | undefined): boolean {
   return storagePathFromPublicUrl(url) != null;
 }
 
-/** Best-effort delete; logs and continues if storage removal fails. */
+/** Delete storage objects; throws if removal fails. */
 export async function deleteStorageUrls(...urls: (string | null | undefined)[]): Promise<void> {
   const paths = [...new Set(urls.map(storagePathFromPublicUrl).filter(Boolean) as string[])];
   if (paths.length === 0) return;
@@ -79,7 +98,7 @@ export async function deleteStorageUrls(...urls: (string | null | undefined)[]):
   const supabase = requireSupabase();
   const { error } = await supabase.storage.from(STORAGE_BUCKET).remove(paths);
   if (error) {
-    console.warn('[BandCrew] storage delete failed', error.message, paths);
+    throw new StorageDeleteError(error.message, paths);
   }
 }
 
@@ -91,12 +110,13 @@ export async function deleteStorageFolder(folderPath: string): Promise<void> {
 
   const filePaths: string[] = [];
   const folders = [root];
+  const listErrors: string[] = [];
 
   while (folders.length > 0) {
     const folder = folders.pop()!;
     const { data, error } = await supabase.storage.from(STORAGE_BUCKET).list(folder);
     if (error) {
-      console.warn('[BandCrew] storage list failed', error.message, folder);
+      listErrors.push(`${folder}: ${error.message}`);
       continue;
     }
     for (const item of data ?? []) {
@@ -110,10 +130,41 @@ export async function deleteStorageFolder(folderPath: string): Promise<void> {
     }
   }
 
+  if (listErrors.length > 0) {
+    throw new StorageDeleteError(`Storage list failed: ${listErrors.join('; ')}`, [root]);
+  }
+
   if (filePaths.length === 0) return;
 
   const { error: removeError } = await supabase.storage.from(STORAGE_BUCKET).remove(filePaths);
   if (removeError) {
-    console.warn('[BandCrew] storage folder delete failed', removeError.message, filePaths);
+    throw new StorageDeleteError(removeError.message, filePaths);
   }
+}
+
+/** Delete all media uploaded under a team scope. */
+export async function deleteTeamStorage(teamId: string): Promise<void> {
+  const errors: string[] = [];
+  for (const folder of TEAM_STORAGE_FOLDERS) {
+    try {
+      await deleteStorageFolder(`${folder}/${teamId}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'storage delete failed';
+      errors.push(`${folder}/${teamId}: ${message}`);
+    }
+  }
+  if (errors.length > 0) {
+    throw new StorageDeleteError(`Team storage cleanup failed: ${errors.join('; ')}`);
+  }
+}
+
+/** Delete a replaced media URL after a successful profile/cover/avatar update. */
+export async function deleteReplacedStorageUrl(
+  previousUrl: string | null | undefined,
+  nextUrl: string | null | undefined,
+): Promise<void> {
+  if (!previousUrl || previousUrl === nextUrl) return;
+  if (!isStoragePublicUrl(previousUrl)) return;
+  if (nextUrl && storagePathFromPublicUrl(previousUrl) === storagePathFromPublicUrl(nextUrl)) return;
+  await deleteStorageUrls(previousUrl);
 }

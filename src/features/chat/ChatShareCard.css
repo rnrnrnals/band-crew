@@ -2,12 +2,20 @@
   display: flex;
   gap: 10px;
   align-items: stretch;
-  text-decoration: none;
-  color: inherit;
+  width: 100%;
+  padding: 0;
   border: 1px solid var(--hairline);
   border-radius: 12px;
   overflow: hidden;
   background: var(--surface-raised);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.chat-share-card:active {
+  opacity: 0.92;
 }
 
 .chat-share-thumb {

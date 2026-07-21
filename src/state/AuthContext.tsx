@@ -11,6 +11,7 @@ import type { Session, User } from '@supabase/supabase-js';
 import type { AppUser } from '../types';
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
 import { DB_TABLES } from '../lib/databaseTables';
+import { deleteReplacedStorageUrl } from '../services/storageService';
 import { INSTAGRAM_COLUMN_MISSING_MESSAGE, isMissingInstagramColumnError } from '../utils/dbErrors';
 
 interface DbProfile {
@@ -210,9 +211,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userId = session.user.id;
       const { data: existing, error: readError } = await supabase
         .from(DB_TABLES.profiles)
-        .select('id')
+        .select('id, avatar_url')
         .eq('id', userId)
         .maybeSingle();
+      const previousAvatar = existing?.avatar_url ?? '';
 
       if (readError) throw new Error(readError.message);
 
@@ -255,6 +257,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else if (error) {
           throw new Error(error.message);
         }
+      }
+
+      if (patch.avatar !== undefined) {
+        await deleteReplacedStorageUrl(previousAvatar, patch.avatar);
       }
 
       await loadProfile(session.user);
