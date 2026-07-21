@@ -20,10 +20,10 @@ import {
   type MediaKind,
 } from './jamUtils';
 import {
+  cancelPendingSyncPlays,
   loadTrackElement,
   playTrackFromStart,
   preloadGuideTracks,
-  startTracksFromStart,
   startTracksWithSync,
 } from './practicePlayback';
 import { WaveformTrimSheet } from './WaveformTrimSheet';
@@ -66,7 +66,7 @@ function describeGuide(audible: number, total: number, metro: boolean) {
 const SYNC_NUDGE_FINE = 0.001;
 const SYNC_NUDGE_COARSE = 0.01;
 const SYNC_NUDGE_WIDE = 0.1;
-const MAX_SYNC_OFFSET = 3;
+const MAX_SYNC_OFFSET = 10;
 
 function formatSyncOffset(sec: number): string {
   const ms = Math.round(sec * 1000);
@@ -358,6 +358,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   };
 
   const stopAll = useCallback(() => {
+    cancelPendingSyncPlays(activeRef.current);
     activeRef.current.forEach((a) => {
       try {
         a.pause();
@@ -448,6 +449,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   };
 
   const releaseGuideElements = () => {
+    cancelPendingSyncPlays(guideElementsRef.current);
     guideElementsRef.current.forEach((el) => {
       try {
         el.pause();
@@ -900,7 +902,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
           });
         });
         transportStartRef.current = performance.now();
-        startTracksFromStart(list, elements);
+        startTracksWithSync(list, elements);
       })
       .catch(() => {
         setStatus('트랙을 불러오지 못했어요. 잠시 후 다시 시도해주세요.');
