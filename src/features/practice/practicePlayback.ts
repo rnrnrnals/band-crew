@@ -66,13 +66,30 @@ export function playTrackFromStart(el: HTMLMediaElement, track: JamTrack): void 
   void el.play().catch(() => {});
 }
 
+const pendingSyncPlayTimers = new WeakMap<HTMLMediaElement, number>();
+
+export function cancelPendingSyncPlay(el: HTMLMediaElement): void {
+  const id = pendingSyncPlayTimers.get(el);
+  if (id == null) return;
+  window.clearTimeout(id);
+  pendingSyncPlayTimers.delete(el);
+}
+
+export function cancelPendingSyncPlays(elements: HTMLMediaElement[]): void {
+  elements.forEach(cancelPendingSyncPlay);
+}
+
 /** Apply trim window and per-track sync offset, then play. */
 export function applySyncOffsetAndPlay(el: HTMLMediaElement, track: JamTrack): void {
+  cancelPendingSyncPlay(el);
   const offset = track.syncOffsetSec ?? 0;
   const windowStart = trackTrimStartSec(track);
   const windowEnd = trackPlayableEndSec(track);
 
   const begin = () => {
+    pendingSyncPlayTimers.delete(el);
+    // Stopped / torn down before delayed start fired.
+    if (!el.src) return;
     let start = windowStart;
     if (offset < 0) {
       start = Math.min(windowEnd, windowStart + Math.max(0, -offset));
@@ -84,17 +101,11 @@ export function applySyncOffsetAndPlay(el: HTMLMediaElement, track: JamTrack): v
 
   if (offset > 0) {
     el.currentTime = windowStart;
-    window.setTimeout(begin, offset * 1000);
+    const id = window.setTimeout(begin, offset * 1000);
+    pendingSyncPlayTimers.set(el, id);
     return;
   }
   begin();
-}
-
-/** Start all tracks from trim start (mix preview; sync offset is visual only). */
-export function startTracksFromStart(tracks: JamTrack[], elements: HTMLMediaElement[]): void {
-  tracks.forEach((track, i) => {
-    playTrackFromStart(elements[i], track);
-  });
 }
 
 /** Start tracks together, honoring trim + syncOffsetSec. */
