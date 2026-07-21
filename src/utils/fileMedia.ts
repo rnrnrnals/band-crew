@@ -22,6 +22,7 @@ export {
   getVideoDuration,
   trimVideoBlob,
   cropVideoToFrameBlob,
+  captureVideoPosterBlob,
   videoNeedsTrim,
   formatMediaTime,
   MAX_VIDEO_DURATION_SEC,

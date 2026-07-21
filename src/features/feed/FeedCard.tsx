@@ -8,6 +8,7 @@ import { CommentAuthor } from './CommentAuthor';
 import { FeedShareButton } from '../chat/ShareContentSheet';
 import { buildSharedPostContent } from '../../utils/contentShare';
 import { formatMediaTime } from '../../utils/fileMedia';
+import { posterUrlForVideo } from '../../utils/videoMediaUtils';
 import './FeedCard.css';
 
 function seekRatioFromBar(bar: HTMLElement, clientX: number): number {
@@ -174,6 +175,8 @@ export function FeedCard({
 
   if (!team) return null;
 
+  const videoPosterUrl = post.mediaType === 'video' ? posterUrlForVideo(post.mediaUrl) : undefined;
+
   return (
     <article className="feed-card" onDoubleClick={handleDoubleClick}>
       <header className="feed-head">
@@ -200,7 +203,15 @@ export function FeedCard({
 
       {post.mediaType === 'video' && post.mediaUrl && (
         <div className="feed-media feed-media--video" ref={wrapRef} onClick={handleMediaClick}>
-          <video ref={videoRef} src={post.mediaUrl} loop muted={muted} playsInline preload="metadata" />
+          <video
+            ref={videoRef}
+            src={post.mediaUrl}
+            poster={videoPosterUrl}
+            loop
+            muted={muted}
+            playsInline
+            preload="auto"
+          />
           <span className="media-badge">{muted ? '탭해서 소리 켜기' : playing ? '재생 중' : '일시정지'}</span>
           {playing ? (
             <div

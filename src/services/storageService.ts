@@ -67,6 +67,23 @@ export async function uploadMediaBlob(
   return data.publicUrl;
 }
 
+export async function uploadPosterForVideo(videoUrl: string, poster: Blob): Promise<string> {
+  const supabase = requireSupabase();
+  const videoPath = storagePathFromPublicUrl(videoUrl);
+  if (!videoPath) throw new Error('포스터 경로를 만들 수 없어요.');
+  const posterPath = videoPath.replace(/\.[^.]+$/, '-poster.jpg');
+
+  const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(posterPath, poster, {
+    contentType: poster.type || 'image/jpeg',
+    upsert: true,
+    cacheControl: '3600',
+  });
+  if (error) throw error;
+
+  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(posterPath);
+  return data.publicUrl;
+}
+
 export async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
   const response = await fetch(dataUrl);
   return response.blob();

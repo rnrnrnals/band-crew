@@ -8,9 +8,12 @@ import {
   formatMaxSize,
   getVideoDuration,
   prepareMediaBlob,
+  captureVideoPosterBlob,
   videoNeedsTrim,
 } from '../utils/fileMedia';
 import { ensurePublishedMedia } from '../utils/mediaUpload';
+import { uploadPosterForVideo } from '../services/storageService';
+import { videoFileExtension } from '../utils/videoMediaUtils';
 import { VideoTrimSheet } from '../features/media/VideoTrimSheet';
 import { VideoCropSheet } from '../features/media/VideoCropSheet';
 import './UploadPage.css';
@@ -100,16 +103,18 @@ export function UploadPage() {
   const handleTrimConfirm = (trimmed: Blob) => {
     if (!trimVideo) return;
     const base = trimVideo.name.replace(/\.[^.]+$/, '') || 'video';
-    const nextFile = new File([trimmed], `${base}-clip.webm`, { type: trimmed.type || 'video/webm' });
+    const ext = videoFileExtension(trimmed.type || 'video/mp4');
+    const nextFile = new File([trimmed], `${base}-clip.${ext}`, { type: trimmed.type || `video/${ext}` });
     setTrimVideo(null);
-    openVideoCrop(nextFile, `${base}-clip.webm`);
+    openVideoCrop(nextFile, `${base}-clip.${ext}`);
   };
 
   const handleCropConfirm = (cropped: Blob) => {
     if (!cropVideo) return;
     const base = cropVideo.name.replace(/\.[^.]+$/, '') || 'video';
-    const nextFile = new File([cropped], `${base}-frame.webm`, {
-      type: cropped.type || 'video/webm',
+    const ext = videoFileExtension(cropped.type || 'video/mp4');
+    const nextFile = new File([cropped], `${base}-frame.${ext}`, {
+      type: cropped.type || `video/${ext}`,
     });
     applyVideoFile(nextFile, cropped);
     setCropVideo(null);
@@ -139,6 +144,10 @@ export function UploadPage() {
         const kind = mediaType === 'image' ? 'image' : 'video';
         const prepared = await prepareMediaBlob(attachedFile, kind);
         mediaUrl = await ensurePublishedMedia(prepared, 'posts', activeTeam.id, attachedFile.name);
+        if (kind === 'video' && mediaUrl && /^https?:\/\//i.test(mediaUrl)) {
+          const poster = await captureVideoPosterBlob(prepared);
+          await uploadPosterForVideo(mediaUrl, poster);
+        }
       }
 
       addPost({
