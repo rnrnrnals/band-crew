@@ -19,9 +19,46 @@ export interface JamTrack {
   authorUserId?: string;
   /** Positive = play later; negative = trim start / play earlier (seconds) */
   syncOffsetSec?: number;
+  /** Seconds cut from the start of the source media */
+  trimStartSec?: number;
+  /** Seconds cut from the end of the source media */
+  trimEndSec?: number;
 }
 
 export const WAVE_BARS = 96;
+
+export function trackTrimStartSec(track: JamTrack): number {
+  return Math.max(0, track.trimStartSec ?? 0);
+}
+
+export function trackTrimEndSec(track: JamTrack): number {
+  return Math.max(0, track.trimEndSec ?? 0);
+}
+
+export function trackPlayableDuration(track: JamTrack): number {
+  const total = Math.max(track.duration || 0, 0);
+  return Math.max(0.001, total - trackTrimStartSec(track) - trackTrimEndSec(track));
+}
+
+export function trackPlayableEndSec(track: JamTrack): number {
+  const total = Math.max(track.duration || 0, 0);
+  return Math.max(trackTrimStartSec(track), total - trackTrimEndSec(track));
+}
+
+export function slicePeaks(
+  peaks: number[] | undefined,
+  startSec: number,
+  endSec: number,
+  duration: number,
+): number[] {
+  const bars = peaks?.length ? peaks : Array(WAVE_BARS).fill(0.12);
+  if (!duration || endSec <= startSec) return bars;
+  const startRatio = startSec / duration;
+  const endRatio = endSec / duration;
+  const startIdx = Math.max(0, Math.min(bars.length - 1, Math.floor(startRatio * bars.length)));
+  const endIdx = Math.max(startIdx + 1, Math.min(bars.length, Math.ceil(endRatio * bars.length)));
+  return bars.slice(startIdx, endIdx);
+}
 
 export const POSITIONS = (Object.keys(POSITION_LABELS) as PositionId[]).map((id) => ({
   id,

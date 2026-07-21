@@ -116,6 +116,12 @@
   background: #000;
 }
 
+.upload-preview--video-frame video {
+  aspect-ratio: 4 / 5;
+  max-height: none;
+  object-fit: cover;
+}
+
 .upload-remove {
   width: 100%;
   border: none;

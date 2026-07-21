@@ -2,6 +2,7 @@ import type { AppUser, BandTeam, PositionId } from '../types';
 import { DEMO_JOIN_CODE } from '../mock/data';
 import { DB_TABLES } from '../lib/databaseTables';
 import { requireSupabase } from '../lib/supabase';
+import { deleteReplacedStorageUrl, deleteTeamStorage } from './storageService';
 import {
   mapTeam,
   type DbTeam,
@@ -417,6 +418,12 @@ export async function leaveTeamInDb(
     };
   }
 
+  const willBeEmpty = (count ?? 0) <= 1;
+
+  if (willBeEmpty) {
+    await deleteTeamStorage(teamId);
+  }
+
   const { error: deleteError } = await supabase
     .from(DB_TABLES.teamMembers)
     .delete()
@@ -464,6 +471,17 @@ export async function updateTeamProfileInDb(
   if (patch.instagram !== undefined) updates.instagram = patch.instagram;
   if (Object.keys(updates).length === 0) return;
 
+  let previousCover: string | undefined;
+  if (patch.cover !== undefined) {
+    const { data, error: readError } = await supabase
+      .from(DB_TABLES.teams)
+      .select('cover_url')
+      .eq('id', teamId)
+      .maybeSingle();
+    if (readError) throw new Error(formatTeamMutationError(readError, '팀 프로필 저장에 실패했어요.'));
+    previousCover = data?.cover_url as string | undefined;
+  }
+
   const { error } = await supabase.from(DB_TABLES.teams).update(updates).eq('id', teamId);
   if (error && updates.instagram !== undefined && isMissingInstagramColumnError(error.message)) {
     const { instagram: _ignored, ...rest } = updates;
@@ -474,6 +492,10 @@ export async function updateTeamProfileInDb(
     throw new Error(INSTAGRAM_COLUMN_MISSING_MESSAGE);
   }
   if (error) throw new Error(formatTeamMutationError(error, '팀 프로필 저장에 실패했어요.'));
+
+  if (patch.cover !== undefined) {
+    await deleteReplacedStorageUrl(previousCover, patch.cover);
+  }
 }
 
 export async function generateInviteCodeInDb(teamId: string): Promise<{ code: string; createdAt: string }> {
@@ -515,6 +537,18 @@ export async function syncMemberProfileInDb(
   if (patch.instagram !== undefined) updates.instagram = patch.instagram;
   if (Object.keys(updates).length === 0) return;
 
+  let previousAvatar: string | undefined;
+  if (patch.avatar_url !== undefined) {
+    const { data, error: readError } = await supabase
+      .from(DB_TABLES.teamMembers)
+      .select('avatar_url')
+      .eq('team_id', teamId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (readError) throw readError;
+    previousAvatar = data?.avatar_url as string | undefined;
+  }
+
   const { error } = await supabase
     .from(DB_TABLES.teamMembers)
     .update(updates)
@@ -537,6 +571,10 @@ export async function syncMemberProfileInDb(
   }
 
   if (error) throw new Error(formatTeamMutationError(error, '멤버 프로필 저장에 실패했어요.'));
+
+  if (patch.avatar_url !== undefined) {
+    await deleteReplacedStorageUrl(previousAvatar, patch.avatar_url);
+  }
 }
 
 async function assertTeamLeader(teamId: string, userId: string): Promise<void> {

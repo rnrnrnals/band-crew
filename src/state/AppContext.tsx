@@ -42,7 +42,8 @@ import type {
 import { filterActiveStories } from '../utils/storyUtils';
 import { createRandomInviteCode, isInviteCodeActive } from '../utils/inviteUtils';
 import { getCrossTeamThreadId } from '../utils/chatUtils';
-import { deleteSessionTracks } from '../utils/practiceStorage';
+import { parseShareMessage } from '../utils/contentShare';
+import { deleteSessionTracks, purgePracticeTracksForSessions } from '../utils/practiceStorage';
 import {
   loadTeamPracticeSongsCache,
   mergeTeamPracticeSongs,
@@ -68,7 +69,7 @@ import {
   deleteHighlightInDb,
   updateHighlightInDb,
 } from '../services/highlightsService';
-import { createChatMessageInDb, subscribeChatMessages } from '../services/chatService';
+import { createChatMessageInDb, subscribeChatMessages, softDeleteChatMessageInDb, updateChatMessageTextInDb } from '../services/chatService';
 import { createPracticeSessionInDb, deletePracticeSessionInDb, updatePracticeSessionInDb } from '../services/practiceService';
 import {
   createTeamPracticeSongInDb,
@@ -192,6 +193,8 @@ interface AppState {
   deleteSession: (sessionId: string) => Promise<boolean>;
   deleteTeamPracticeSong: (songId: string) => Promise<boolean>;
   sendChatMessage: (payload: SendChatPayload, options?: { peerTeamId?: string }) => void;
+  updateChatMessage: (messageId: string, text: string) => Promise<void>;
+  deleteChatMessage: (messageId: string) => Promise<void>;
   addStory: (input: Omit<Story, 'id' | 'createdAt'>) => void;
   createHighlight: (teamId: string, title: string, storyIds: string[]) => void;
   updateHighlight: (highlightId: string, patch: { title?: string; storyIds?: string[] }) => void;
@@ -451,7 +454,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
     };
 
-    return subscribeChatMessages(chatTeamIds, appendChatMessage);
+    const replaceChatMessage = (message: ChatMessage) => {
+      setChatMessages((prev) => {
+        const index = prev.findIndex((m) => m.id === message.id);
+        if (index < 0) return prev;
+        const next = [...prev];
+        next[index] = message;
+        return next;
+      });
+    };
+
+    return subscribeChatMessages(chatTeamIds, {
+      onInsert: appendChatMessage,
+      onUpdate: replaceChatMessage,
+    });
   }, [useDb, dataReady, userId, myTeamIds, followingIds, activeTeamId]);
 
   useEffect(() => {
@@ -853,7 +869,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (teamId: string, nextActiveTeamId?: string | null) => {
       setMyTeamIds((prev) => prev.filter((id) => id !== teamId));
       setCustomTeams((prev) => prev.filter((t) => t.id !== teamId));
-      setSessions((prev) => prev.filter((s) => s.teamId !== teamId));
+      setSessions((prev) => {
+        const sessionIds = prev.filter((s) => s.teamId === teamId).map((s) => s.id);
+        purgePracticeTracksForSessions(sessionIds);
+        return prev.filter((s) => s.teamId !== teamId);
+      });
       setPosts((prev) => prev.filter((p) => p.teamId !== teamId));
       setEvents((prev) => prev.filter((e) => e.teamId !== teamId));
       setStories((prev) => prev.filter((s) => s.teamId !== teamId));
@@ -1686,6 +1706,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: `ch-${Date.now()}`,
       teamId: activeTeamId,
       chatThreadId,
+      authorUserId: userId || userProfile.id,
       authorNick,
       authorAvatar,
       kind: payload.kind,
@@ -1694,6 +1715,63 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     const next = [...chatMessages, message];
+    setChatMessages(next);
+    persist({ chatMessages: next });
+  };
+
+  const updateChatMessage = async (messageId: string, text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error('메시지를 입력해 주세요.');
+
+    const target = chatMessages.find((m) => m.id === messageId);
+    if (!target || target.deletedAt) throw new Error('수정할 수 없는 메시지예요.');
+    if ((target.kind ?? 'text') !== 'text') throw new Error('텍스트 메시지만 수정할 수 있어요.');
+    if (parseShareMessage(target.text)) throw new Error('공유 메시지는 수정할 수 없어요.');
+
+    const myNick = activeTeam ? findCurrentMember(activeTeam, userProfile)?.nick ?? userProfile.name : userProfile.name;
+    if (target.authorUserId && userId) {
+      if (target.authorUserId !== userId) throw new Error('내 메시지만 수정할 수 있어요.');
+    } else if (target.authorNick !== myNick) {
+      throw new Error('내 메시지만 수정할 수 있어요.');
+    }
+
+    const editedAt = new Date().toISOString();
+    if (useDb) {
+      const updated = await updateChatMessageTextInDb(messageId, trimmed);
+      setChatMessages((prev) => prev.map((m) => (m.id === messageId ? updated : m)));
+      return;
+    }
+
+    const next = chatMessages.map((m) =>
+      m.id === messageId ? { ...m, text: trimmed, editedAt } : m,
+    );
+    setChatMessages(next);
+    persist({ chatMessages: next });
+  };
+
+  const deleteChatMessage = async (messageId: string) => {
+    const target = chatMessages.find((m) => m.id === messageId);
+    if (!target || target.deletedAt) throw new Error('삭제할 수 없는 메시지예요.');
+
+    const myNick = activeTeam ? findCurrentMember(activeTeam, userProfile)?.nick ?? userProfile.name : userProfile.name;
+    if (target.authorUserId && userId) {
+      if (target.authorUserId !== userId) throw new Error('내 메시지만 삭제할 수 있어요.');
+    } else if (target.authorNick !== myNick) {
+      throw new Error('내 메시지만 삭제할 수 있어요.');
+    }
+
+    const deletedAt = new Date().toISOString();
+    if (useDb) {
+      const updated = await softDeleteChatMessageInDb(messageId);
+      setChatMessages((prev) => prev.map((m) => (m.id === messageId ? updated : m)));
+      return;
+    }
+
+    const next = chatMessages.map((m) =>
+      m.id === messageId
+        ? { ...m, deletedAt, text: undefined, mediaUrl: undefined }
+        : m,
+    );
     setChatMessages(next);
     persist({ chatMessages: next });
   };
@@ -2230,6 +2308,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deleteSession,
     deleteTeamPracticeSong,
     sendChatMessage,
+    updateChatMessage,
+    deleteChatMessage,
     addStory,
     createHighlight,
     updateHighlight,

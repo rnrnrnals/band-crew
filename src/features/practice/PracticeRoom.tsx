@@ -12,19 +12,27 @@ import {
   analyzeMedia,
   drawWaveform,
   pickRecorderMime,
+  slicePeaks,
+  trackPlayableDuration,
+  trackPlayableEndSec,
+  trackTrimStartSec,
   type JamTrack,
   type MediaKind,
 } from './jamUtils';
 import {
-  applySyncOffsetAndPlay,
   loadTrackElement,
+  playTrackFromStart,
   preloadGuideTracks,
+  startTracksFromStart,
   startTracksWithSync,
 } from './practicePlayback';
+import { WaveformTrimSheet } from './WaveformTrimSheet';
+import { RecordPreviewSheet, type RecordPreviewData } from './RecordPreviewSheet';
 import { loadSessionTracks, saveSessionTracks, type StoredPracticeTrack } from '../../utils/practiceStorage';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { useAuth } from '../../state/AuthContext';
 import { useApp } from '../../state/AppContext';
+import { findCurrentMember } from '../../mock/memberUtils';
 import {
   fetchPracticeTracksForSession,
   syncPracticeTracksToDb,
@@ -57,6 +65,7 @@ function describeGuide(audible: number, total: number, metro: boolean) {
 
 const SYNC_NUDGE_FINE = 0.001;
 const SYNC_NUDGE_COARSE = 0.01;
+const SYNC_NUDGE_WIDE = 0.1;
 const MAX_SYNC_OFFSET = 3;
 
 function formatSyncOffset(sec: number): string {
@@ -67,11 +76,34 @@ function formatSyncOffset(sec: number): string {
 
 function syncWaveformLayout(t: JamTrack, timeline: number) {
   const syncSec = t.syncOffsetSec ?? 0;
-  const dur = Math.max(t.duration || timeline, 0.001);
-  const clipPct = Math.min(100, Math.max(2, (dur / timeline) * 100));
-  const clipLeftPct = syncSec > 0 ? (syncSec / timeline) * 100 : 0;
-  const canvasShiftPct = syncSec < 0 ? (syncSec / dur) * 100 : 0;
-  return { clipPct, clipLeftPct, canvasShiftPct };
+  const playable = trackPlayableDuration(t);
+  const clipPct = Math.min(100, Math.max(2, (playable / timeline) * 100));
+  const clipLeftPct = (syncSec / timeline) * 100;
+  return { clipPct, clipLeftPct };
+}
+
+/** Solo playhead: cell left = trim start, independent of sync offset. */
+function trackTimelineProgress(
+  currentTime: number,
+  track: JamTrack,
+  timeline: number,
+): number {
+  const trimStart = trackTrimStartSec(track);
+  return Math.min(1, Math.max(0, (currentTime - trimStart) / timeline));
+}
+
+/** Highlight progress within the clip; follows playhead vs waveform position. */
+function trackWaveformLocalProgress(
+  t: JamTrack,
+  timeline: number,
+  timelineProgress: number,
+): number | null {
+  const { clipPct, clipLeftPct } = syncWaveformLayout(t, timeline);
+  if (clipPct <= 0) return 0;
+  const playheadPct = timelineProgress * 100;
+  if (playheadPct <= clipLeftPct) return 0;
+  if (playheadPct >= clipLeftPct + clipPct) return 1;
+  return (playheadPct - clipLeftPct) / clipPct;
 }
 
 function trackVolume(t: JamTrack): number {
@@ -96,6 +128,8 @@ function toStoredTrack(track: JamTrack): StoredPracticeTrack {
     kind: track.kind,
     authorUserId: track.authorUserId,
     syncOffsetSec: track.syncOffsetSec ?? 0,
+    trimStartSec: track.trimStartSec ?? 0,
+    trimEndSec: track.trimEndSec ?? 0,
   };
 }
 
@@ -113,6 +147,8 @@ function fromStoredTrack(track: StoredPracticeTrack): JamTrack {
     kind: track.kind,
     authorUserId: track.authorUserId,
     syncOffsetSec: track.syncOffsetSec ?? 0,
+    trimStartSec: track.trimStartSec ?? 0,
+    trimEndSec: track.trimEndSec ?? 0,
   };
 }
 
@@ -122,7 +158,7 @@ function revokeBlobUrl(url: string) {
 
 export function PracticeRoom({ session, teamName, onBack }: Props) {
   const { session: authSession } = useAuth();
-  const { isOwnPracticeSession, deleteSession } = useApp();
+  const { isOwnPracticeSession, deleteSession, user, activeTeam } = useApp();
   const useDb = isSupabaseConfigured && !!authSession;
   const canDeleteSession = isOwnPracticeSession(session);
   const [tracksLoading, setTracksLoading] = useState(useDb);
@@ -146,9 +182,11 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const [posOpen, setPosOpen] = useState(false);
   const [mediaKind, setMediaKind] = useState<MediaKind>('audio');
   const [selPos, setSelPos] = useState<PositionId | null>(null);
-  const [nicks, setNicks] = useState<Record<string, string>>({});
 
   const [playProgress, setPlayProgress] = useState<Record<number, number>>({});
+  const [trimTrackId, setTrimTrackId] = useState<number | null>(null);
+  const [recordPreview, setRecordPreview] = useState<RecordPreviewData | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -168,6 +206,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const recordingPhaseRef = useRef<'idle' | 'counting' | 'recording'>('idle');
   const guideElementsRef = useRef<HTMLMediaElement[]>([]);
   const guideLoadGenRef = useRef(0);
+  const transportStartRef = useRef<number | null>(null);
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
   const ownTrackIdsRef = useRef<Set<number>>(new Set());
@@ -175,6 +214,11 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const markOwnTrack = useCallback((trackId: number) => {
     ownTrackIdsRef.current.add(trackId);
   }, []);
+
+  const getUploaderNick = useCallback(() => {
+    if (!activeTeam) return user.name;
+    return findCurrentMember(activeTeam, user)?.nick ?? user.name;
+  }, [activeTeam, user]);
 
   const persistTracks = useCallback(
     (next: JamTrack[]) => {
@@ -209,7 +253,9 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                 if (
                   blobUrl === t.blobUrl &&
                   saved.authorUserId === t.authorUserId &&
-                  (saved.syncOffsetSec ?? 0) === (t.syncOffsetSec ?? 0)
+                  (saved.syncOffsetSec ?? 0) === (t.syncOffsetSec ?? 0) &&
+                  (saved.trimStartSec ?? 0) === (t.trimStartSec ?? 0) &&
+                  (saved.trimEndSec ?? 0) === (t.trimEndSec ?? 0)
                 ) {
                   return t;
                 }
@@ -218,6 +264,8 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                   blobUrl,
                   authorUserId: saved.authorUserId ?? t.authorUserId,
                   syncOffsetSec: saved.syncOffsetSec ?? t.syncOffsetSec ?? 0,
+                  trimStartSec: saved.trimStartSec ?? t.trimStartSec ?? 0,
+                  trimEndSec: saved.trimEndSec ?? t.trimEndSec ?? 0,
                 };
               }),
             );
@@ -285,7 +333,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   }, [tracks, persistTracks, tracksLoading]);
 
   const maxDur = useCallback(
-    () => tracks.reduce((m, t) => Math.max(m, t.duration || 0), 0) || 1,
+    () => tracks.reduce((m, t) => Math.max(m, trackPlayableDuration(t)), 0) || 1,
     [tracks],
   );
 
@@ -320,6 +368,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       }
     });
     activeRef.current = [];
+    transportStartRef.current = null;
     setSoloId(null);
     setMixPlaying(false);
     setPlayProgress({});
@@ -330,10 +379,16 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       const timeline = maxDur();
       tracks.forEach((t) => {
         const canvas = canvasRefs.current.get(t.id);
-        const { clipPct } = syncWaveformLayout(t, timeline);
         const global = progress?.[t.id];
-        const local = global != null && clipPct > 0 ? Math.min(1, global / (clipPct / 100)) : null;
-        drawWaveform(canvas ?? null, t.peaks, t.color, local);
+        const local =
+          global != null ? trackWaveformLocalProgress(t, timeline, global) : null;
+        const trimmedPeaks = slicePeaks(
+          t.peaks,
+          trackTrimStartSec(t),
+          trackPlayableEndSec(t),
+          t.duration || timeline,
+        );
+        drawWaveform(canvas ?? null, trimmedPeaks, t.color, local);
       });
     },
     [tracks, maxDur],
@@ -347,19 +402,20 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     const timeline = maxDur();
     const next: Record<number, number> = {};
     if (mixPlaying || recording) {
-      const lead = activeRef.current.reduce<HTMLMediaElement | null>((best, a) => {
-        if (!a.duration || !Number.isFinite(a.duration)) return best;
-        return !best || a.duration > best.duration ? a : best;
-      }, null);
-      if (lead) {
-        const p = Math.min(1, lead.currentTime / timeline);
+      const start = transportStartRef.current;
+      if (start != null && timeline > 0) {
+        const elapsed = (performance.now() - start) / 1000;
+        const p = Math.min(1, elapsed / timeline);
         tracks.forEach((t) => {
           next[t.id] = p;
         });
       }
     } else if (soloId != null) {
+      const solo = tracks.find((t) => t.id === soloId);
       const a = activeRef.current.find((x) => x.dataset.trackId === String(soloId));
-      if (a) next[soloId] = Math.min(1, a.currentTime / timeline);
+      if (a && solo) {
+        next[soloId] = trackTimelineProgress(a.currentTime, solo, timeline);
+      }
     }
     setPlayProgress(next);
     paintWaveforms(next);
@@ -385,7 +441,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
           activeRef.current = activeRef.current.filter((x) => x !== el);
           onEnd?.();
         });
-        applySyncOffsetAndPlay(el, t.syncOffsetSec ?? 0);
+        playTrackFromStart(el, t);
       })
       .catch(() => onEnd?.());
     return null;
@@ -404,7 +460,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     guideElementsRef.current = [];
   };
 
-  const cleanupRec = () => {
+  const releaseRecordingHardware = () => {
     if (metroTimerRef.current) {
       clearInterval(metroTimerRef.current);
       metroTimerRef.current = null;
@@ -432,8 +488,16 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     countInDoneRef.current = false;
     recordingPhaseRef.current = 'idle';
     setRecording(false);
+  };
+
+  const resetTransport = () => {
     setTransportLabel('새 트랙 올리기');
     setTransportSub('● 눌러 포지션 선택');
+  };
+
+  const cleanupRec = () => {
+    releaseRecordingHardware();
+    resetTransport();
   };
 
   const finishRecording = async () => {
@@ -450,38 +514,78 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       recorderRef.current = null;
     }
 
-    if (!chunks.length) {
+    releaseRecordingHardware();
+
+    if (!chunks.length || !pos) {
       finishLockRef.current = false;
-      cleanupRec();
+      resetTransport();
       setStatus('녹음된 내용이 없어요.');
       return;
     }
 
-    const kind = pos?.kind || 'audio';
+    setPreviewLoading(true);
+    setTransportLabel('녹음 확인 준비 중…');
+    setTransportSub('잠시만 기다려 주세요');
+
+    const kind = pos.kind || 'audio';
     const blob = new Blob(chunks, {
       type: mimeRef.current || (kind === 'video' ? 'video/webm' : 'audio/webm'),
     });
     const blobUrl = URL.createObjectURL(blob);
-    const analyzed = await analyzeMedia(blobUrl);
+
+    try {
+      const analyzed = await analyzeMedia(blobUrl);
+      setRecordPreview({
+        blobUrl,
+        kind,
+        positionId: pos.id,
+        positionLabel: pos.label,
+        name: pos.nick || `트랙 ${tracks.length + 1}`,
+        color: pos.color,
+        peaks: analyzed.peaks,
+        duration: analyzed.duration,
+      });
+      setTransportLabel('녹음 확인');
+      setTransportSub('들어보고 올릴지 선택하세요');
+      setStatus('');
+    } catch {
+      URL.revokeObjectURL(blobUrl);
+      resetTransport();
+      setStatus('녹음을 불러오지 못했어요. 다시 시도해 주세요.');
+    } finally {
+      setPreviewLoading(false);
+      finishLockRef.current = false;
+    }
+  };
+
+  const confirmRecordPreview = () => {
+    if (!recordPreview) return;
     const track: JamTrack = {
       id: Date.now(),
-      name: pos?.nick || `트랙 ${tracks.length + 1}`,
-      blobUrl,
-      color: pos?.color || '#e0a04a',
+      name: recordPreview.name,
+      blobUrl: recordPreview.blobUrl,
+      color: recordPreview.color,
       volume: 1,
-      peaks: analyzed.peaks,
-      duration: analyzed.duration,
-      positionId: pos?.id || 'other',
-      positionLabel: pos?.label || '그 외',
-      kind,
+      peaks: recordPreview.peaks,
+      duration: recordPreview.duration,
+      positionId: recordPreview.positionId,
+      positionLabel: recordPreview.positionLabel,
+      kind: recordPreview.kind,
       authorUserId: authSession?.user.id,
       syncOffsetSec: 0,
     };
     if (authSession?.user.id) markOwnTrack(track.id);
     setTracks((prev) => [...prev, track]);
+    setRecordPreview(null);
+    resetTransport();
     setStatus(`${track.positionLabel} · ${track.name} 추가됨`);
-    finishLockRef.current = false;
-    cleanupRec();
+  };
+
+  const discardRecordPreview = () => {
+    if (recordPreview) URL.revokeObjectURL(recordPreview.blobUrl);
+    setRecordPreview(null);
+    resetTransport();
+    setStatus('녹음을 버렸어요.');
   };
 
   const beginRecord = async (guide: JamTrack[], useMetro: boolean, beatMs: number) => {
@@ -563,11 +667,12 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     }
 
     recorderRef.current.start();
+    transportStartRef.current = performance.now();
     startTracksWithSync(guide, guideElements);
   };
 
   const startSession = async (pos: PendingPos) => {
-    if (sessionLockRef.current || recordingPhaseRef.current !== 'idle') return;
+    if (sessionLockRef.current || recordingPhaseRef.current !== 'idle' || recordPreview) return;
     sessionLockRef.current = true;
     countInDoneRef.current = false;
     recordingPhaseRef.current = 'counting';
@@ -647,6 +752,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   };
 
   const openPos = () => {
+    if (recordPreview || previewLoading) return;
     if (recording) {
       stopRec();
       return;
@@ -663,8 +769,13 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const confirmPos = () => {
     if (!selPos || sessionLockRef.current) return;
     const p = POSITIONS.find((x) => x.id === selPos)!;
-    const nick = (nicks[selPos] || '').trim() || p.label;
-    startSession({ id: p.id, label: p.label, color: p.color, nick, kind: mediaKind });
+    startSession({
+      id: p.id,
+      label: p.label,
+      color: p.color,
+      nick: getUploaderNick(),
+      kind: mediaKind,
+    });
   };
 
   const isOwnTrack = useCallback(
@@ -735,6 +846,15 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     });
   };
 
+  const applyTrackTrim = (trackId: number, trimStartSec: number, trimEndSec: number) => {
+    setTracks((prev) =>
+      prev.map((t) =>
+        t.id === trackId ? { ...t, trimStartSec, trimEndSec } : t,
+      ),
+    );
+    setTrimTrackId(null);
+  };
+
   const nudgeSyncOffset = (id: number, delta: number) => {
     setTracks((prev) =>
       prev.map((t) => {
@@ -779,7 +899,8 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
             if (done >= total) stopAll();
           });
         });
-        startTracksWithSync(list, elements);
+        transportStartRef.current = performance.now();
+        startTracksFromStart(list, elements);
       })
       .catch(() => {
         setStatus('트랙을 불러오지 못했어요. 잠시 후 다시 시도해주세요.');
@@ -788,6 +909,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
 
   const videoTracks = tracks.filter((t) => t.kind === 'video');
   const timeline = maxDur();
+  const trimTrack = trimTrackId != null ? tracks.find((t) => t.id === trimTrackId) : undefined;
 
   if (tracksLoading) {
     return (
@@ -832,6 +954,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         <button
           type="button"
           className={`rec-btn ${recording ? 'on' : ''}`}
+          disabled={!!recordPreview || previewLoading}
           onClick={openPos}
         >
           {recording ? '■' : '●'}
@@ -884,7 +1007,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       )}
 
       {tracks.map((t) => {
-        const { clipPct, clipLeftPct, canvasShiftPct } = syncWaveformLayout(t, timeline);
+        const { clipPct, clipLeftPct } = syncWaveformLayout(t, timeline);
         const prog = playProgress[t.id] ?? 0;
         return (
           <div
@@ -909,15 +1032,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                   {t.positionLabel}
                   {t.kind === 'video' ? ' · VIDEO' : ''}
                 </span>
-                <input
-                  className="track-name"
-                  value={t.name}
-                  onChange={(e) =>
-                    setTracks((prev) =>
-                      prev.map((x) => (x.id === t.id ? { ...x, name: e.target.value } : x)),
-                    )
-                  }
-                />
+                <span className="track-name">{t.name}</span>
                 {isOwnTrack(t) && (
                   <button
                     type="button"
@@ -931,6 +1046,14 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
               </div>
               {isOwnTrack(t) && (
                 <div className="sync-nudge" title="재생 타이밍 미세 조절">
+                  <button
+                    type="button"
+                    className="sync-btn sync-btn-wide"
+                    onClick={() => nudgeSyncOffset(t.id, -SYNC_NUDGE_WIDE)}
+                    title="앞당기기 (−100ms)"
+                  >
+                    ◀◀◀
+                  </button>
                   <button
                     type="button"
                     className="sync-btn sync-btn-coarse"
@@ -964,9 +1087,24 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                   >
                     ▶▶
                   </button>
+                  <button
+                    type="button"
+                    className="sync-btn sync-btn-wide"
+                    onClick={() => nudgeSyncOffset(t.id, SYNC_NUDGE_WIDE)}
+                    title="뒤로 (+100ms)"
+                  >
+                    ▶▶▶
+                  </button>
                 </div>
               )}
-              <div className={`waveform ${prog > 0 ? 'is-playing' : ''}`}>
+              <button
+                type="button"
+                className={`waveform ${prog > 0 ? 'is-playing' : ''}${isOwnTrack(t) ? ' waveform--tap' : ''}`}
+                onClick={() => {
+                  if (isOwnTrack(t)) setTrimTrackId(t.id);
+                }}
+                title={isOwnTrack(t) ? '탭하여 앞뒤 구간 자르기' : undefined}
+              >
                 <div
                   className="waveform-clip"
                   style={{
@@ -974,19 +1112,14 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                     left: `${clipLeftPct}%`,
                   }}
                 >
-                  <div
-                    className="waveform-canvas-wrap"
-                    style={{ transform: `translateX(${canvasShiftPct}%)` }}
-                  >
-                    <canvas
-                      ref={(el) => {
-                        if (el) canvasRefs.current.set(t.id, el);
-                      }}
-                    />
-                  </div>
+                  <canvas
+                    ref={(el) => {
+                      if (el) canvasRefs.current.set(t.id, el);
+                    }}
+                  />
                 </div>
                 <div className="playhead" style={{ left: `${prog * 100}%` }} />
-              </div>
+              </button>
             </div>
             <div className="track-actions">
               <label className="volume-control" title="볼륨 (0 = 음소거)">
@@ -1020,10 +1153,29 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         <video ref={camPreviewRef} autoPlay muted playsInline />
       </div>
 
+      {recordPreview ? (
+        <RecordPreviewSheet
+          preview={recordPreview}
+          onConfirm={confirmRecordPreview}
+          onDiscard={discardRecordPreview}
+        />
+      ) : null}
+
+      {trimTrack ? (
+        <WaveformTrimSheet
+          track={trimTrack}
+          onClose={() => setTrimTrackId(null)}
+          onConfirm={(trimStartSec, trimEndSec) =>
+            applyTrackTrim(trimTrack.id, trimStartSec, trimEndSec)
+          }
+        />
+      ) : null}
+
       {posOpen && (
         <div className="pos-overlay open" onClick={() => setPosOpen(false)}>
           <div className="pos-sheet" onClick={(e) => e.stopPropagation()}>
             <h2>포지션 · 미디어</h2>
+            <p className="pos-nick-hint">올린 트랙에는 {getUploaderNick()} 으로 표시돼요.</p>
             <div className="media-mode">
               <button
                 type="button"
@@ -1050,14 +1202,6 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                 >
                   <span className="pos-art" dangerouslySetInnerHTML={{ __html: p.art }} />
                   <span>{p.label}</span>
-                  <input
-                    placeholder="닉네임"
-                    maxLength={12}
-                    value={nicks[p.id] || ''}
-                    onClick={(e) => e.stopPropagation()}
-                    onFocus={() => setSelPos(p.id)}
-                    onChange={(e) => setNicks((n) => ({ ...n, [p.id]: e.target.value }))}
-                  />
                 </button>
               ))}
             </div>

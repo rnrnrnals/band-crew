@@ -2,6 +2,7 @@ import type { ChatMessage, SendChatPayload } from '../types';
 import { DB_TABLES } from '../lib/databaseTables';
 import { requireSupabase } from '../lib/supabase';
 import { mapChat } from '../lib/supabaseMappers';
+import { deleteStorageUrls } from './storageService';
 import { getCrossTeamThreadId } from '../utils/chatUtils';
 
 type DbChatRow = {
@@ -15,6 +16,8 @@ type DbChatRow = {
   text: string | null;
   media_url: string | null;
   created_at: string;
+  edited_at?: string | null;
+  deleted_at?: string | null;
 };
 
 function mapRow(row: DbChatRow): ChatMessage {
@@ -67,7 +70,10 @@ export function chatMessageMatchesTeams(row: DbChatRow, teamIds: string[]): bool
 
 export function subscribeChatMessages(
   teamIds: string[],
-  onMessage: (message: ChatMessage) => void,
+  handlers: {
+    onInsert: (message: ChatMessage) => void;
+    onUpdate: (message: ChatMessage) => void;
+  },
 ): () => void {
   const supabase = requireSupabase();
   const uniqueTeamIds = [...new Set(teamIds)];
@@ -80,7 +86,16 @@ export function subscribeChatMessages(
       (payload) => {
         const row = payload.new as DbChatRow;
         if (!chatMessageMatchesTeams(row, uniqueTeamIds)) return;
-        onMessage(mapRow(row));
+        handlers.onInsert(mapRow(row));
+      },
+    )
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: DB_TABLES.chatMessages },
+      (payload) => {
+        const row = payload.new as DbChatRow;
+        if (!chatMessageMatchesTeams(row, uniqueTeamIds)) return;
+        handlers.onUpdate(mapRow(row));
       },
     )
     .subscribe((status, err) => {
@@ -121,5 +136,55 @@ export async function createChatMessageInDb(
     .single();
 
   if (error || !data) throw error ?? new Error('메시지 전송 실패');
+  return mapRow(data as DbChatRow);
+}
+
+export async function updateChatMessageTextInDb(
+  messageId: string,
+  text: string,
+): Promise<ChatMessage> {
+  const supabase = requireSupabase();
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error('메시지를 입력해 주세요.');
+
+  const { data, error } = await supabase
+    .from(DB_TABLES.chatMessages)
+    .update({
+      text: trimmed,
+      edited_at: new Date().toISOString(),
+    })
+    .eq('id', messageId)
+    .select('*')
+    .single();
+
+  if (error || !data) throw error ?? new Error('메시지 수정 실패');
+  return mapRow(data as DbChatRow);
+}
+
+export async function softDeleteChatMessageInDb(messageId: string): Promise<ChatMessage> {
+  const supabase = requireSupabase();
+
+  const { data: existing, error: readError } = await supabase
+    .from(DB_TABLES.chatMessages)
+    .select('*')
+    .eq('id', messageId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!existing) throw new Error('메시지를 찾을 수 없어요.');
+
+  await deleteStorageUrls((existing as DbChatRow).media_url);
+
+  const { data, error } = await supabase
+    .from(DB_TABLES.chatMessages)
+    .update({
+      deleted_at: new Date().toISOString(),
+      text: null,
+      media_url: null,
+    })
+    .eq('id', messageId)
+    .select('*')
+    .single();
+
+  if (error || !data) throw error ?? new Error('메시지 삭제 실패');
   return mapRow(data as DbChatRow);
 }

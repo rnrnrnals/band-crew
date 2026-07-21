@@ -5,6 +5,12 @@ import {
   readFileAsDataUrl,
 } from './fileMedia';
 import { canvasToImageBlob, getPreferredImageMime } from './imageOutput';
+import {
+  POST_VIDEO_OUTPUT_HEIGHT,
+  POST_VIDEO_OUTPUT_WIDTH,
+  cropRectFromPan,
+  type VideoFrameCropParams,
+} from './videoFrameCrop';
 
 export type MediaKind = 'image' | 'video' | 'audio';
 
@@ -95,6 +101,96 @@ export async function compressImageBlob(
 function pickVideoMime(): string {
   const types = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
   return types.find((type) => MediaRecorder.isTypeSupported(type)) ?? '';
+}
+
+type VideoRecordSession = {
+  stream: MediaStream;
+  stopDraw: () => void;
+  close: () => void;
+};
+
+/** Canvas video + element audio merged for MediaRecorder. */
+function createVideoRecordSession(
+  video: HTMLVideoElement,
+  width: number,
+  height: number,
+  drawFrame: (ctx: CanvasRenderingContext2D) => void,
+  fps = 24,
+): VideoRecordSession {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('영상 처리에 실패했어요.');
+
+  const canvasStream = canvas.captureStream(fps);
+  const tracks: MediaStreamTrack[] = [...canvasStream.getVideoTracks()];
+
+  let audioCtx: AudioContext | null = null;
+  try {
+    audioCtx = new AudioContext();
+    const source = audioCtx.createMediaElementSource(video);
+    const dest = audioCtx.createMediaStreamDestination();
+    source.connect(dest);
+    tracks.push(...dest.stream.getAudioTracks());
+  } catch {
+    if (typeof (video as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream === 'function') {
+      const native = (video as HTMLVideoElement & { captureStream: () => MediaStream }).captureStream();
+      native.getAudioTracks().forEach((track) => tracks.push(track));
+    }
+  }
+
+  let rafId = 0;
+  const draw = () => {
+    if (video.ended) return;
+    drawFrame(ctx);
+    rafId = requestAnimationFrame(draw);
+  };
+  draw();
+
+  return {
+    stream: new MediaStream(tracks),
+    stopDraw: () => cancelAnimationFrame(rafId),
+    close: () => {
+      void audioCtx?.close();
+    },
+  };
+}
+
+function recordStreamToBlob(
+  stream: MediaStream,
+  mimeType: string,
+  videoBitsPerSecond: number,
+  stopWhen: () => boolean,
+  maxMs: number,
+): Promise<Blob> {
+  const recorder = new MediaRecorder(stream, {
+    mimeType,
+    videoBitsPerSecond,
+    bitsPerSecond: videoBitsPerSecond,
+  });
+  const chunks: Blob[] = [];
+
+  return new Promise((resolve, reject) => {
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    recorder.onerror = () => reject(new Error('영상 처리에 실패했어요.'));
+    recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+
+    recorder.start(250);
+    const tick = () => {
+      if (stopWhen()) {
+        if (recorder.state !== 'inactive') recorder.stop();
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    tick();
+    window.setTimeout(() => {
+      if (recorder.state !== 'inactive') recorder.stop();
+    }, maxMs);
+  });
 }
 
 function mixToMono(buffer: AudioBuffer): Float32Array {
@@ -236,70 +332,43 @@ async function recordVideoSegment(
   mimeType: string,
   clipLen: number,
   maxBytes: number,
+  drawFrame?: (ctx: CanvasRenderingContext2D, el: HTMLVideoElement) => void,
 ): Promise<Blob> {
   const videoBitsPerSecond = Math.max(150_000, Math.floor((maxBytes * 8 * 0.72) / clipLen));
-  const canCaptureVideo =
-    typeof (video as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream ===
-      'function';
+  video.muted = false;
+  video.volume = 1;
 
-  let stream: MediaStream;
-  let stopDraw: (() => void) | undefined;
-
-  if (canCaptureVideo) {
-    stream = (video as HTMLVideoElement & { captureStream: () => MediaStream }).captureStream();
-  } else {
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(320, video.videoWidth);
-    canvas.height = Math.max(240, video.videoHeight);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('영상 자르기에 실패했어요.');
-    stream = canvas.captureStream(24);
-    let rafId = 0;
-    const draw = () => {
-      if (video.currentTime >= endSec || video.paused) return;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      rafId = requestAnimationFrame(draw);
-    };
-    stopDraw = () => cancelAnimationFrame(rafId);
-    draw();
-  }
-
-  const recorder = new MediaRecorder(stream, {
-    mimeType,
-    videoBitsPerSecond,
-    bitsPerSecond: videoBitsPerSecond,
-  });
-  const chunks: Blob[] = [];
-
-  return new Promise((resolve, reject) => {
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunks.push(event.data);
-    };
-    recorder.onerror = () => reject(new Error('영상 자르기에 실패했어요.'));
-    recorder.onstop = () => {
-      stopDraw?.();
-      stream.getTracks().forEach((track) => track.stop());
-      resolve(new Blob(chunks, { type: mimeType }));
-    };
-
-    recorder.start(250);
-    void video.play().catch(reject);
-
-    const tick = () => {
-      if (video.currentTime >= endSec || video.ended) {
-        video.pause();
-        if (recorder.state !== 'inactive') recorder.stop();
+  const width = Math.max(320, video.videoWidth);
+  const height = Math.max(240, video.videoHeight);
+  const session = createVideoRecordSession(
+    video,
+    width,
+    height,
+    (ctx) => {
+      if (drawFrame) {
+        drawFrame(ctx, video);
         return;
       }
-      requestAnimationFrame(tick);
-    };
-    tick();
+      ctx.drawImage(video, 0, 0, width, height);
+    },
+  );
 
-    window.setTimeout(() => {
-      video.pause();
-      if (recorder.state !== 'inactive') recorder.stop();
-    }, Math.ceil(clipLen * 1000) + 2500);
-  });
+  try {
+    await video.play();
+    const blob = await recordStreamToBlob(
+      session.stream,
+      mimeType,
+      videoBitsPerSecond,
+      () => video.currentTime >= endSec || video.ended,
+      Math.ceil(clipLen * 1000) + 2500,
+    );
+    video.pause();
+    return blob;
+  } finally {
+    session.stopDraw();
+    session.stream.getTracks().forEach((track) => track.stop());
+    session.close();
+  }
 }
 
 export async function trimVideoBlob(
@@ -317,7 +386,8 @@ export async function trimVideoBlob(
   const url = URL.createObjectURL(blob);
   const video = document.createElement('video');
   video.playsInline = true;
-  video.volume = 0;
+  video.muted = false;
+  video.volume = 1;
   video.src = url;
 
   try {
@@ -343,82 +413,120 @@ export function videoNeedsTrim(durationSec: number | undefined): boolean {
   return !!durationSec && durationSec > MAX_VIDEO_DURATION_SEC + 0.5;
 }
 
+export async function cropVideoToFrameBlob(
+  blob: Blob,
+  crop: VideoFrameCropParams,
+  maxBytes = CHAT_MAX_VIDEO_BYTES,
+): Promise<Blob> {
+  const url = URL.createObjectURL(blob);
+  const video = document.createElement('video');
+  video.playsInline = true;
+  video.muted = false;
+  video.volume = 1;
+  video.preload = 'auto';
+  video.src = url;
+
+  try {
+    await waitEvent(video, 'loadedmetadata');
+    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+      throw new Error('영상 정보를 확인할 수 없어요.');
+    }
+
+    const { sx, sy, sw, sh } = cropRectFromPan(
+      video.videoWidth,
+      video.videoHeight,
+      crop.viewportWidth,
+      crop.viewportHeight,
+      crop.scale,
+      crop.offsetX,
+      crop.offsetY,
+    );
+
+    const outW = POST_VIDEO_OUTPUT_WIDTH;
+    const outH = POST_VIDEO_OUTPUT_HEIGHT;
+    const mimeType = pickVideoMime();
+    if (!mimeType) throw new Error('이 브라우저에서는 영상 자르기를 지원하지 않아요.');
+
+    const videoBitsPerSecond = Math.max(
+      150_000,
+      Math.floor((maxBytes * 8 * 0.72) / Math.max(0.5, video.duration)),
+    );
+
+    const session = createVideoRecordSession(video, outW, outH, (ctx) => {
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outW, outH);
+    });
+
+    try {
+      video.currentTime = 0;
+      await video.play();
+      const cropped = await recordStreamToBlob(
+        session.stream,
+        mimeType,
+        videoBitsPerSecond,
+        () => video.ended,
+        Math.ceil(video.duration * 1000) + 2500,
+      );
+      video.pause();
+      if (cropped.size <= maxBytes) return cropped;
+      return compressVideoBlob(cropped, maxBytes);
+    } finally {
+      session.stopDraw();
+      session.stream.getTracks().forEach((track) => track.stop());
+      session.close();
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+    video.src = '';
+  }
+}
+
 async function reencodeVideo(
   video: HTMLVideoElement,
   maxBytes: number,
   scale: number,
+  drawFrame?: (ctx: CanvasRenderingContext2D, el: HTMLVideoElement, outW: number, outH: number) => void,
 ): Promise<Blob> {
   const duration = video.duration;
-  const width = Math.max(320, Math.round(video.videoWidth * scale));
-  const height = Math.max(240, Math.round(video.videoHeight * scale));
+  const outW = Math.max(320, Math.round(video.videoWidth * scale));
+  const outH = Math.max(240, Math.round(video.videoHeight * scale));
   const videoBitsPerSecond = Math.max(100_000, Math.floor((maxBytes * 8 * 0.72) / duration));
 
   const mimeType = pickVideoMime();
   if (!mimeType) throw new Error('이 브라우저에서는 영상 압축을 지원하지 않아요.');
 
-  const canCaptureVideo =
-    scale >= 0.99 &&
-    typeof (video as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream ===
-      'function';
+  video.muted = false;
+  video.volume = 1;
 
-  let stream: MediaStream;
-  let stopDraw: (() => void) | undefined;
+  const session = createVideoRecordSession(
+    video,
+    outW,
+    outH,
+    (ctx) => {
+      if (drawFrame) {
+        drawFrame(ctx, video, outW, outH);
+        return;
+      }
+      ctx.drawImage(video, 0, 0, outW, outH);
+    },
+  );
 
-  if (canCaptureVideo) {
-    video.volume = 0;
-    stream = (video as HTMLVideoElement & { captureStream: () => MediaStream }).captureStream();
-  } else {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('영상 압축에 실패했어요.');
-    stream = canvas.captureStream(24);
-    let rafId = 0;
-    const draw = () => {
-      if (video.ended) return;
-      ctx.drawImage(video, 0, 0, width, height);
-      rafId = requestAnimationFrame(draw);
-    };
-    stopDraw = () => cancelAnimationFrame(rafId);
-    draw();
-  }
-
-  const recorder = new MediaRecorder(stream, {
-    mimeType,
-    videoBitsPerSecond,
-    bitsPerSecond: videoBitsPerSecond,
-  });
-  const chunks: Blob[] = [];
-
-  return new Promise((resolve, reject) => {
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunks.push(event.data);
-    };
-    recorder.onerror = () => reject(new Error('영상 압축에 실패했어요.'));
-    recorder.onstop = () => {
-      stopDraw?.();
-      stream.getTracks().forEach((track) => track.stop());
-      resolve(new Blob(chunks, { type: mimeType }));
-    };
-
+  try {
     video.currentTime = 0;
-    recorder.start(250);
-    void video
-      .play()
-      .then(() => {
-        video.onended = () => {
-          if (recorder.state !== 'inactive') recorder.stop();
-        };
-      })
-      .catch(reject);
-
-    window.setTimeout(() => {
-      if (video.ended) return;
-      video.pause();
-      if (recorder.state !== 'inactive') recorder.stop();
-    }, Math.ceil(duration * 1000) + 2500);
-  });
+    await video.play();
+    const blob = await recordStreamToBlob(
+      session.stream,
+      mimeType,
+      videoBitsPerSecond,
+      () => video.ended,
+      Math.ceil(duration * 1000) + 2500,
+    );
+    video.pause();
+    return blob;
+  } finally {
+    session.stopDraw();
+    session.stream.getTracks().forEach((track) => track.stop());
+    session.close();
+  }
 }
 
 export async function compressVideoBlob(

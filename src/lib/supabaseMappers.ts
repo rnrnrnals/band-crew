@@ -275,17 +275,22 @@ export function mapChat(row: {
   text: string | null;
   media_url: string | null;
   created_at: string;
+  edited_at?: string | null;
+  deleted_at?: string | null;
 }): ChatMessage {
   return {
     id: row.id,
     teamId: row.team_id,
     chatThreadId: row.chat_thread_id ?? undefined,
+    authorUserId: row.author_user_id,
     authorNick: row.author_nick,
     authorAvatar: row.author_avatar_url || undefined,
     kind: row.kind,
     text: row.text ?? undefined,
     mediaUrl: row.media_url ?? undefined,
     createdAt: row.created_at,
+    editedAt: row.edited_at ?? undefined,
+    deletedAt: row.deleted_at ?? undefined,
   };
 }
 

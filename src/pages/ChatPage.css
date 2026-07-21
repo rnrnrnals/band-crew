@@ -143,7 +143,6 @@
 
 .chat-bubble time {
   display: block;
-  margin-top: 4px;
   font-size: 10px;
   color: var(--text-faint);
   text-align: right;
