@@ -99,7 +99,14 @@ export async function compressImageBlob(
 }
 
 function pickVideoMime(): string {
-  const types = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
+  const types = [
+    'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
+    'video/mp4;codecs=avc1',
+    'video/mp4',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+  ];
   return types.find((type) => MediaRecorder.isTypeSupported(type)) ?? '';
 }
 
@@ -474,6 +481,53 @@ export async function cropVideoToFrameBlob(
       session.stream.getTracks().forEach((track) => track.stop());
       session.close();
     }
+  } finally {
+    URL.revokeObjectURL(url);
+    video.src = '';
+  }
+}
+
+/** JPEG poster for feed thumbnails (iOS Safari needs this for WebM sources). */
+export async function captureVideoPosterBlob(blob: Blob): Promise<Blob> {
+  const url = URL.createObjectURL(blob);
+  const video = document.createElement('video');
+  video.playsInline = true;
+  video.muted = true;
+  video.preload = 'auto';
+  video.src = url;
+
+  try {
+    await waitEvent(video, 'loadeddata');
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      await seekVideo(video, Math.min(0.05, video.duration * 0.01));
+    }
+
+    const outW = POST_VIDEO_OUTPUT_WIDTH;
+    const outH = POST_VIDEO_OUTPUT_HEIGHT;
+    const canvas = document.createElement('canvas');
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('썸네일을 만들지 못했어요.');
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (vw > 0 && vh > 0) {
+      const scale = Math.max(outW / vw, outH / vh);
+      const drawW = vw * scale;
+      const drawH = vh * scale;
+      const dx = (outW - drawW) / 2;
+      const dy = (outH - drawH) / 2;
+      ctx.drawImage(video, dx, dy, drawW, drawH);
+    }
+
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (result) => (result ? resolve(result) : reject(new Error('썸네일을 만들지 못했어요.'))),
+        'image/jpeg',
+        0.86,
+      );
+    });
   } finally {
     URL.revokeObjectURL(url);
     video.src = '';

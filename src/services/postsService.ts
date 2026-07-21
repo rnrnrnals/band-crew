@@ -2,6 +2,7 @@ import type { Post, PostComment } from '../types';
 import { DB_TABLES } from '../lib/databaseTables';
 import { requireSupabase } from '../lib/supabase';
 import { deleteStorageUrls } from './storageService';
+import { posterUrlForVideo } from '../utils/videoMediaUtils';
 import {
   mapPost,
   mapPostComment,
@@ -193,7 +194,10 @@ export async function deletePostInDb(postId: string): Promise<void> {
     .eq('id', postId)
     .maybeSingle();
 
-  await deleteStorageUrls(row?.media_url as string | null | undefined);
+  await deleteStorageUrls(
+    row?.media_url as string | null | undefined,
+    posterUrlForVideo(row?.media_url as string | undefined),
+  );
 
   const { error } = await supabase.from(DB_TABLES.posts).delete().eq('id', postId);
   if (error) throw error;

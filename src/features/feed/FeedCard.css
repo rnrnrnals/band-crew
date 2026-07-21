@@ -98,6 +98,7 @@
   height: 100%;
   max-height: none;
   object-fit: cover;
+  background: transparent;
 }
 
 .media-badge {

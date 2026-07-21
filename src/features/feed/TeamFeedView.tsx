@@ -16,6 +16,7 @@ import { TeamAudioPanel, type MixedFeedItem } from './TeamAudioPanel';
 import { SoundDetailSheet } from './SoundDetailSheet';
 import { TeamPracticeSheet } from './TeamPracticeSheet';
 import { ProfileAvatar } from '../../components/ProfileAvatar';
+import { posterUrlForVideo } from '../../utils/videoMediaUtils';
 import './TeamFeedView.css';
 
 type ListKind = 'followers' | 'following' | 'members';
@@ -135,7 +136,13 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
           >
             {p.mediaType === 'video' && p.mediaUrl ? (
               <div className="tf-grid-video">
-                <video src={p.mediaUrl} muted playsInline preload="metadata" />
+                <video
+                  src={p.mediaUrl}
+                  poster={posterUrlForVideo(p.mediaUrl)}
+                  muted
+                  playsInline
+                  preload="auto"
+                />
                 <span className="tf-grid-badge">▶</span>
               </div>
             ) : p.mediaType === 'image' && p.mediaUrl ? (

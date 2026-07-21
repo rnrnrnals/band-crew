@@ -5,6 +5,7 @@ import { useNavigateToTeamFeed } from '../../hooks/useNavigateToTeamFeed';
 import { SquareImageCropSheet } from '../media/SquareImageCropSheet';
 import { prepareMediaBlob, formatMaxSize, CHAT_MAX_AUDIO_BYTES, getAudioDuration } from '../../utils/fileMedia';
 import { ensurePublishedMedia } from '../../utils/mediaUpload';
+import { posterUrlForVideo } from '../../utils/videoMediaUtils';
 import { barNearCommentRatio, getWaveCommentMarkers, measureWaveRatioPosition } from '../../utils/audioCommentUtils';
 import './TeamAudioPanel.css';
 
@@ -850,7 +851,13 @@ export function TeamAudioPanel({
               >
                 {p.mediaType === 'video' && p.mediaUrl ? (
                   <div className="tf-grid-video">
-                    <video src={p.mediaUrl} muted playsInline preload="metadata" />
+                    <video
+                      src={p.mediaUrl}
+                      poster={posterUrlForVideo(p.mediaUrl)}
+                      muted
+                      playsInline
+                      preload="auto"
+                    />
                     <span className="tf-grid-badge">▶</span>
                   </div>
                 ) : p.mediaType === 'image' && p.mediaUrl ? (
