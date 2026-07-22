@@ -1,5 +1,6 @@
 import type { PositionId } from '../types';
 import type { MediaKind } from '../features/practice/jamUtils';
+import { deleteMediaBlobsForSession } from './practiceMediaDb';
 
 export interface StoredPracticeTrack {
   id: number;
@@ -61,6 +62,7 @@ export function deleteSessionTracks(sessionId: string) {
   const all = loadAll();
   delete all[sessionId];
   saveAll(all);
+  void deleteMediaBlobsForSession(sessionId).catch(() => {});
 }
 
 export function purgePracticeTracksForSessions(sessionIds: string[]) {
@@ -72,6 +74,7 @@ export function purgePracticeTracksForSessions(sessionIds: string[]) {
       delete all[sessionId];
       changed = true;
     }
+    void deleteMediaBlobsForSession(sessionId).catch(() => {});
   }
   if (changed) saveAll(all);
 }

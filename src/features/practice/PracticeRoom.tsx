@@ -36,6 +36,7 @@ import { VideoCropSheet } from '../media/VideoCropSheet';
 import { MediaProgressPanel } from '../../components/MediaProgressPanel';
 import { clampProgress } from '../../utils/mediaProgress';
 import { loadSessionTracks, saveSessionTracks, type StoredPracticeTrack } from '../../utils/practiceStorage';
+import { deleteMediaBlob, getMediaBlob, mediaBlobKey, putMediaBlob } from '../../utils/practiceMediaDb';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { useAuth } from '../../state/AuthContext';
 import { useApp } from '../../state/AppContext';
@@ -187,6 +188,8 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const tracksHydratedRef = useRef(!useDb);
   /** Only true after the user explicitly removed every track — never on initial load. */
   const userEmptiedTracksRef = useRef(false);
+  /** Track ids whose blob has already been copied into IndexedDB this session (local/no-auth mode). */
+  const savedLocalBlobIdsRef = useRef<Set<number>>(new Set());
 
   const [tracks, setTracks] = useState<JamTrack[]>(() =>
     useDb ? [] : loadSessionTracks(session.id).map(fromStoredTrack),
@@ -206,6 +209,8 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [cropTarget, setCropTarget] = useState<{ file: File; pos: PendingPos } | null>(null);
   const [videoViewerTrackId, setVideoViewerTrackId] = useState<number | null>(null);
+  /** Tracks whose media couldn't be recovered (dead `blob:` URL, no cloud/IndexedDB backup). */
+  const [brokenTrackIds, setBrokenTrackIds] = useState<Set<number>>(new Set());
   const [mediaJob, setMediaJob] = useState<{
     label: string;
     progress: number;
@@ -279,6 +284,19 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       if (!useDb) {
         const ok = saveSessionTracks(session.id, stored);
         if (!ok) setStatus('트랙 저장 공간이 부족해요. 오래된 트랙을 삭제해주세요.');
+        // `blob:` URLs die on refresh — copy the actual bytes into IndexedDB
+        // once per track so they can be reconstituted on the next load.
+        next.forEach((t) => {
+          if (!t.blobUrl.startsWith('blob:') || savedLocalBlobIdsRef.current.has(t.id)) return;
+          savedLocalBlobIdsRef.current.add(t.id);
+          void fetch(t.blobUrl)
+            .then((r) => r.blob())
+            .then((blob) => putMediaBlob(mediaBlobKey(session.id, t.id), blob))
+            .catch((err) => {
+              savedLocalBlobIdsRef.current.delete(t.id);
+              console.error('[BandCrew] local track blob save failed', err);
+            });
+        });
         return;
       }
 
@@ -384,7 +402,9 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         syncedRef.current = new Map(stored.map((t) => [t.id, t]));
         userEmptiedTracksRef.current = false;
         setTracks(stored.map(fromStoredTrack));
-        if (stored.some((t) => t.mediaUrl.startsWith('blob:'))) {
+        const broken = stored.filter((t) => t.mediaUrl.startsWith('blob:'));
+        if (broken.length > 0) {
+          setBrokenTrackIds(new Set(broken.map((t) => t.id)));
           setStatus('일부 트랙 파일이 저장되지 않았어요. 다시 올려주세요.');
         }
       })
@@ -402,6 +422,47 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       cancelled = true;
     };
   }, [useDb, session.id, authSession?.user.id, markOwnTrack]);
+
+  /**
+   * Local (no-auth) mode persists tracks with a `blob:` URL, which is dead
+   * on every fresh page load. Swap in a freshly minted object URL backed by
+   * the copy of the bytes we saved to IndexedDB (see `persistTracks`).
+   */
+  useEffect(() => {
+    if (useDb) return;
+    let cancelled = false;
+    void Promise.all(
+      tracksRef.current.map(async (t) => {
+        if (!t.blobUrl.startsWith('blob:')) return t;
+        savedLocalBlobIdsRef.current.add(t.id);
+        try {
+          const blob = await getMediaBlob(mediaBlobKey(session.id, t.id));
+          if (!blob) {
+            savedLocalBlobIdsRef.current.delete(t.id);
+            return t;
+          }
+          return { ...t, blobUrl: URL.createObjectURL(blob) };
+        } catch {
+          savedLocalBlobIdsRef.current.delete(t.id);
+          return t;
+        }
+      }),
+    ).then((rehydrated) => {
+      if (cancelled) return;
+      const changed = rehydrated.some((t, i) => t.blobUrl !== tracksRef.current[i]?.blobUrl);
+      if (changed) setTracks(rehydrated);
+      const stillBroken = rehydrated.filter((t) => t.blobUrl.startsWith('blob:'));
+      if (stillBroken.length > 0) {
+        setBrokenTrackIds(new Set(stillBroken.map((t) => t.id)));
+        setStatus('일부 트랙 파일을 복구하지 못했어요. 다시 올려주세요.');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Only re-run when switching sessions/mode — track edits shouldn't retrigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useDb, session.id]);
 
   useEffect(
     () => () => {
@@ -731,8 +792,18 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       });
     }
 
+    if (!useDb) {
+      savedLocalBlobIdsRef.current.delete(id);
+      void deleteMediaBlob(mediaBlobKey(session.id, id)).catch(() => {});
+    }
     revokeBlobUrl(t.blobUrl);
     ownTrackIdsRef.current.delete(id);
+    setBrokenTrackIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
     setTracks((prev) => {
       const next = prev.filter((x) => x.id !== id);
       if (next.length === 0) userEmptiedTracksRef.current = true;
@@ -741,6 +812,10 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   };
 
   const toggleSolo = (id: number) => {
+    if (brokenTrackIds.has(id)) {
+      setStatus('이 트랙은 파일이 손상되어 재생할 수 없어요. 삭제 후 다시 올려주세요.');
+      return;
+    }
     resumePracticeAudio();
     if (mixPlaying) stopAll();
     if (soloId === id) {
@@ -796,7 +871,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       stopAll();
       return;
     }
-    const list = tracksRef.current.filter(isTrackAudible);
+    const list = tracksRef.current.filter((t) => isTrackAudible(t) && !brokenTrackIds.has(t.id));
     if (list.length === 0) {
       setStatus('재생할 트랙이 없어요');
       return;
@@ -907,35 +982,51 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
 
       {videoTracks.length > 0 && (
         <div className="video-stage show">
-          {videoTracks.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={`video-tile ${trackVolume(t) === 0 ? 'is-silent' : ''}`}
-              onClick={() => openVideoViewer(t.id)}
-              aria-label={`${t.positionLabel} ${t.name} 동영상 보기`}
-            >
-              <video
-                key={t.blobUrl}
-                className="video-tile-poster"
-                src={t.blobUrl}
-                muted
-                playsInline
-                preload="auto"
-                aria-hidden
-              />
-              <div
-                className="video-tile-mount"
-                ref={(el) => {
-                  if (el) videoMountRefs.current.set(t.id, el);
-                  else videoMountRefs.current.delete(t.id);
-                }}
-              />
-              <span className="video-tile-label">
-                {t.positionLabel} · {t.name}
-              </span>
-            </button>
-          ))}
+          {videoTracks.map((t) => {
+            const broken = brokenTrackIds.has(t.id);
+            return (
+              <button
+                key={t.id}
+                type="button"
+                className={`video-tile ${trackVolume(t) === 0 ? 'is-silent' : ''} ${broken ? 'is-broken' : ''}`}
+                onClick={() => (broken ? deleteTrack(t.id) : openVideoViewer(t.id))}
+                aria-label={
+                  broken
+                    ? `${t.positionLabel} ${t.name} 재생 불가 — 삭제`
+                    : `${t.positionLabel} ${t.name} 동영상 보기`
+                }
+              >
+                {broken ? (
+                  <div className="video-tile-broken">
+                    <span>재생 불가</span>
+                    <span className="video-tile-broken-hint">눌러서 삭제 후 다시 올려주세요</span>
+                  </div>
+                ) : (
+                  <>
+                    <video
+                      key={t.blobUrl}
+                      className="video-tile-poster"
+                      src={t.blobUrl}
+                      muted
+                      playsInline
+                      preload="auto"
+                      aria-hidden
+                    />
+                    <div
+                      className="video-tile-mount"
+                      ref={(el) => {
+                        if (el) videoMountRefs.current.set(t.id, el);
+                        else videoMountRefs.current.delete(t.id);
+                      }}
+                    />
+                  </>
+                )}
+                <span className="video-tile-label">
+                  {t.positionLabel} · {t.name}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -956,19 +1047,25 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
             style={{ ['--c' as string]: t.color }}
           >
             {t.kind === 'video' ? (
-              <div className="track-thumb">
-                <video
-                  key={t.blobUrl}
-                  ref={(el) => {
-                    if (el) videoThumbRefs.current.set(t.id, el);
-                    else videoThumbRefs.current.delete(t.id);
-                  }}
-                  src={t.blobUrl}
-                  muted
-                  playsInline
-                  preload="auto"
-                />
-                <span className="vid-badge">VID</span>
+              <div className={`track-thumb ${brokenTrackIds.has(t.id) ? 'is-broken' : ''}`}>
+                {brokenTrackIds.has(t.id) ? (
+                  <span className="vid-badge broken">재생불가</span>
+                ) : (
+                  <>
+                    <video
+                      key={t.blobUrl}
+                      ref={(el) => {
+                        if (el) videoThumbRefs.current.set(t.id, el);
+                        else videoThumbRefs.current.delete(t.id);
+                      }}
+                      src={t.blobUrl}
+                      muted
+                      playsInline
+                      preload="auto"
+                    />
+                    <span className="vid-badge">VID</span>
+                  </>
+                )}
               </div>
             ) : (
               <div
