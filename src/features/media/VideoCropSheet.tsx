@@ -212,7 +212,7 @@ export function VideoCropSheet({ file, fileName, onConfirm, onClose }: VideoCrop
           </button>
         </header>
         <p className="video-crop-sub">
-          피드에 올라갈 4:5 프레임에 꽉 차도록 맞춰 주세요. 드래그하고 확대할 수 있어요.
+          피드에 올라갈 정사각형 프레임에 꽉 차도록 맞춰 주세요. 드래그하고 확대할 수 있어요.
           {fileName ? ` (${fileName})` : ''}
         </p>
 

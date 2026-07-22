@@ -27,6 +27,7 @@ import {
   loadTrackElement,
   mixSessionDurationSec,
   primeMixTransport,
+  resumePracticeAudio,
   setElementVolume,
 } from './practicePlayback';
 import { WaveformTrimSheet } from './WaveformTrimSheet';
@@ -185,6 +186,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncInFlightRef = useRef(false);
   const syncPendingRef = useRef(false);
+  const runSyncRef = useRef<(() => void) | null>(null);
 
   const [tracks, setTracks] = useState<JamTrack[]>(() =>
     useDb ? [] : loadSessionTracks(session.id).map(fromStoredTrack),
@@ -292,6 +294,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
           });
       };
 
+      runSyncRef.current = runSync;
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
       syncTimerRef.current = setTimeout(runSync, 400);
     },
@@ -326,7 +329,14 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
 
   useEffect(
     () => () => {
-      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+      // Leaving the page shouldn't drop a pending debounced save — flush it
+      // immediately instead of just cancelling the timer (which previously
+      // dropped the last upload if you navigated away within ~400ms).
+      if (syncTimerRef.current) {
+        clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = null;
+        runSyncRef.current?.();
+      }
     },
     [],
   );
@@ -600,6 +610,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   };
 
   const toggleSolo = (id: number) => {
+    resumePracticeAudio();
     if (mixPlaying) stopAll();
     if (soloId === id) {
       stopAll();
@@ -642,6 +653,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   };
 
   const toggleMix = () => {
+    resumePracticeAudio();
     if (soloId != null) stopAll();
     if (mixPlaying) {
       stopAll();

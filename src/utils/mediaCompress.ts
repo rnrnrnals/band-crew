@@ -164,17 +164,30 @@ function createVideoRecordSession(
   };
 }
 
+/** Guaranteed floor for audio bitrate so re-encoding a video never starves
+ * its audio quality — video gets whatever's left of the byte budget. */
+const TARGET_AUDIO_BITRATE = 128_000;
+const MIN_VIDEO_BITRATE = 150_000;
+
+/** Split a total byte budget into a video bitrate, reserving room for audio
+ * first so compression only shrinks the picture, not the sound. */
+function computeVideoBitrate(maxBytes: number, durationSec: number, budgetFactor = 0.72): number {
+  const totalBps = (maxBytes * 8 * budgetFactor) / Math.max(0.5, durationSec);
+  return Math.max(MIN_VIDEO_BITRATE, Math.floor(totalBps - TARGET_AUDIO_BITRATE));
+}
+
 function recordStreamToBlob(
   stream: MediaStream,
   mimeType: string,
   videoBitsPerSecond: number,
   stopWhen: () => boolean,
   maxMs: number,
+  audioBitsPerSecond: number = TARGET_AUDIO_BITRATE,
 ): Promise<Blob> {
   const recorder = new MediaRecorder(stream, {
     mimeType,
     videoBitsPerSecond,
-    bitsPerSecond: videoBitsPerSecond,
+    audioBitsPerSecond,
   });
   const chunks: Blob[] = [];
 
@@ -341,7 +354,7 @@ async function recordVideoSegment(
   maxBytes: number,
   drawFrame?: (ctx: CanvasRenderingContext2D, el: HTMLVideoElement) => void,
 ): Promise<Blob> {
-  const videoBitsPerSecond = Math.max(150_000, Math.floor((maxBytes * 8 * 0.72) / clipLen));
+  const videoBitsPerSecond = computeVideoBitrate(maxBytes, clipLen);
   video.muted = false;
   video.volume = 1;
 
@@ -454,10 +467,7 @@ export async function cropVideoToFrameBlob(
     const mimeType = pickVideoMime();
     if (!mimeType) throw new Error('이 브라우저에서는 영상 자르기를 지원하지 않아요.');
 
-    const videoBitsPerSecond = Math.max(
-      150_000,
-      Math.floor((maxBytes * 8 * 0.72) / Math.max(0.5, video.duration)),
-    );
+    const videoBitsPerSecond = computeVideoBitrate(maxBytes, video.duration);
 
     const session = createVideoRecordSession(video, outW, outH, (ctx) => {
       ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outW, outH);
@@ -543,7 +553,7 @@ async function reencodeVideo(
   const duration = video.duration;
   const outW = Math.max(320, Math.round(video.videoWidth * scale));
   const outH = Math.max(240, Math.round(video.videoHeight * scale));
-  const videoBitsPerSecond = Math.max(100_000, Math.floor((maxBytes * 8 * 0.72) / duration));
+  const videoBitsPerSecond = computeVideoBitrate(maxBytes, duration);
 
   const mimeType = pickVideoMime();
   if (!mimeType) throw new Error('이 브라우저에서는 영상 압축을 지원하지 않아요.');

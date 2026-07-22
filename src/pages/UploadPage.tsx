@@ -231,7 +231,7 @@ export function UploadPage() {
               <span>
                 {mediaType === 'image'
                   ? `갤러리에서 사진을 고르세요 (자동 ${formatMaxSize(CHAT_MAX_IMAGE_BYTES)} 이하)`
-                  : `갤러리에서 영상을 고르세요 (최대 5분 · 4:5 프레임 맞춤 · 자동 ${formatMaxSize(CHAT_MAX_VIDEO_BYTES)} 이하)`}
+                  : `갤러리에서 영상을 고르세요 (최대 5분 · 정사각형 프레임 맞춤 · 자동 ${formatMaxSize(CHAT_MAX_VIDEO_BYTES)} 이하)`}
               </span>
             </button>
           )}

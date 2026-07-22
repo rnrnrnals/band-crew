@@ -1,8 +1,8 @@
 import { clamp } from './squareImageCrop';
 
-/** Feed post frame: 4:5 portrait (width / height). */
-export const POST_VIDEO_FRAME_RATIO = 4 / 5;
-export const POST_VIDEO_OUTPUT_WIDTH = 720;
+/** Feed post frame: square (width / height). */
+export const POST_VIDEO_FRAME_RATIO = 1;
+export const POST_VIDEO_OUTPUT_WIDTH = 900;
 export const POST_VIDEO_OUTPUT_HEIGHT = 900;
 
 export interface VideoFrameCropParams {

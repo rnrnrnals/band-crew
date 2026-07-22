@@ -49,7 +49,7 @@
 .video-crop-viewport {
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 1;
   overflow: hidden;
   border-radius: 12px;
   background: #111;
