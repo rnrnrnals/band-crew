@@ -117,7 +117,7 @@
 }
 
 .upload-preview--video-frame video {
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 1;
   max-height: none;
   object-fit: cover;
 }

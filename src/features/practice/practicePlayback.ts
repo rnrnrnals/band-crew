@@ -18,6 +18,22 @@ function getPracticeAudioCtx(): AudioContext {
   return practiceAudioCtx;
 }
 
+/**
+ * Every track element is routed through this shared AudioContext once
+ * `createMediaElementSource` is called on it (see `ensureGainNode`), so if
+ * the context is suspended the element can look like it's playing (not
+ * paused, currentTime advancing) while producing no audible sound at all.
+ * Browsers only resume a suspended context reliably when `resume()` is
+ * called synchronously inside a user-gesture handler, so call this at the
+ * very top of click handlers — before any `await`/promise chain — rather
+ * than relying on the resume() inside `setGainValue`, which usually runs
+ * too late (after an async track/element load).
+ */
+export function resumePracticeAudio(): void {
+  const ctx = getPracticeAudioCtx();
+  if (ctx.state === 'suspended') void ctx.resume();
+}
+
 function ensureGainNode(el: HTMLMediaElement): GainNode {
   let gain = elementGainNodes.get(el);
   if (gain) return gain;

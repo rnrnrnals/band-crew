@@ -90,7 +90,7 @@
 }
 
 .feed-media--video {
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 1;
 }
 
 .feed-media--video video {
