@@ -526,6 +526,13 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     setPlayProgress({});
   }, []);
 
+  // Leaving the practice room (back button, route change) previously left
+  // any playing solo/mix elements running — they were still attached to the
+  // shared Web Audio graph and had no `pause()` call anywhere on unmount,
+  // so their audio (and any mid-seek stutter) kept audibly playing even
+  // after the screen was gone.
+  useEffect(() => () => stopAll(), [stopAll]);
+
   const paintWaveforms = useCallback(
     (progress: Record<number, number> | null) => {
       const timeline = maxDur();
