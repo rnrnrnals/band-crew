@@ -137,10 +137,17 @@ export function cancelPendingSyncPlays(_elements: HTMLMediaElement[]): void {
 /** Drift beyond this forces a hard seek (start-of-playback, resume, or a
  * real desync too large for a speed nudge to close in reasonable time). */
 const DRIFT_HARD_SEEK_SEC = 0.35;
-/** Drift below this is inaudible — leave `playbackRate` alone. */
+/** Drift above this starts a corrective speed nudge. */
 const DRIFT_IGNORE_SEC = 0.03;
+/** Drift must fall back below this (lower than the entry threshold, on
+ * purpose) before a nudge stops — a single shared threshold made the rate
+ * flip on/off every frame right at the boundary, which is audible as a
+ * pitch "warble" on top of the plain stutter. */
+const DRIFT_SETTLE_SEC = 0.015;
 const NUDGE_RATE_AHEAD = 1.06;
 const NUDGE_RATE_BEHIND = 0.94;
+
+const nudgeDirection = new WeakMap<HTMLMediaElement, 'ahead' | 'behind'>();
 
 /** Position a track for the current mix session elapsed time. */
 export function applyMixTransport(
@@ -154,24 +161,35 @@ export function applyMixTransport(
   if (vol === 0 || fileTime == null) {
     setGainValue(el, 0);
     if (!el.paused) el.pause();
+    nudgeDirection.delete(el);
     return;
   }
 
   const drift = fileTime - el.currentTime;
   const absDrift = Math.abs(drift);
+  const wasNudging = nudgeDirection.get(el);
+
   if (absDrift > DRIFT_HARD_SEEK_SEC || el.paused) {
     el.currentTime = fileTime;
     el.playbackRate = 1;
-  } else if (absDrift > DRIFT_IGNORE_SEC) {
+    nudgeDirection.delete(el);
+  } else if (absDrift <= DRIFT_SETTLE_SEC) {
+    if (wasNudging) {
+      el.playbackRate = 1;
+      nudgeDirection.delete(el);
+    }
+  } else if (absDrift > DRIFT_IGNORE_SEC || wasNudging) {
     // Small ongoing drift: nudge speed instead of seeking. A streamed
     // (non-`blob:`) element can't seek for free — every `currentTime`
     // assignment forces it to re-buffer at the new position, which is what
     // made mix/solo playback sound glitchy/stuttery once remote audio
     // actually started playing (it used to be silently Web-Audio-tainted,
     // so nobody heard the constant re-seeking before).
-    el.playbackRate = drift > 0 ? NUDGE_RATE_AHEAD : NUDGE_RATE_BEHIND;
-  } else if (el.playbackRate !== 1) {
-    el.playbackRate = 1;
+    const direction: 'ahead' | 'behind' = drift > 0 ? 'ahead' : 'behind';
+    if (direction !== wasNudging) {
+      el.playbackRate = direction === 'ahead' ? NUDGE_RATE_AHEAD : NUDGE_RATE_BEHIND;
+      nudgeDirection.set(el, direction);
+    }
   }
 
   setGainValue(el, vol);
