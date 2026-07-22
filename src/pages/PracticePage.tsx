@@ -48,7 +48,7 @@ export function PracticePage() {
     <div className="page practice-list">
       <h1 className="page-title">연습실</h1>
       <p className="page-sub">
-        {activeTeam?.name} 팀의 레이어드 합주. 포지션별로 녹음·녹화하고 겹쳐 들어보세요.
+        {activeTeam?.name} 팀의 레이어드 합주. 포지션별로 오디오·동영상 파일을 올리고 겹쳐 들어보세요.
       </p>
 
       <div className="card session-new">

@@ -1,5 +1,52 @@
 import type { JamTrack } from './jamUtils';
-import { trackPlayableEndSec, trackTrimStartSec } from './jamUtils';
+import {
+  trackFileTimeAtSessionElapsed,
+  trackSessionDurationSec,
+  trackTrimStartSec,
+} from './jamUtils';
+
+let practiceAudioCtx: AudioContext | null = null;
+const elementGainNodes = new WeakMap<HTMLMediaElement, GainNode>();
+
+function getPracticeAudioCtx(): AudioContext {
+  if (!practiceAudioCtx) {
+    const AC =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    practiceAudioCtx = new AC();
+  }
+  return practiceAudioCtx;
+}
+
+function ensureGainNode(el: HTMLMediaElement): GainNode {
+  let gain = elementGainNodes.get(el);
+  if (gain) return gain;
+
+  const ctx = getPracticeAudioCtx();
+  const source = ctx.createMediaElementSource(el);
+  gain = ctx.createGain();
+  source.connect(gain);
+  gain.connect(ctx.destination);
+  elementGainNodes.set(el, gain);
+  return gain;
+}
+
+function setGainValue(el: HTMLMediaElement, volume: number): void {
+  const vol = Math.max(0, Math.min(1, volume));
+  const ctx = getPracticeAudioCtx();
+  if (ctx.state === 'suspended') void ctx.resume();
+  const gain = ensureGainNode(el);
+  const now = ctx.currentTime;
+  gain.gain.cancelScheduledValues(now);
+  gain.gain.setValueAtTime(vol, now);
+  el.muted = vol === 0;
+  el.volume = 1;
+}
+
+/** Route element audio through a GainNode (iOS ignores element.volume). */
+export function setElementVolume(el: HTMLMediaElement, volume: number): void {
+  setGainValue(el, volume);
+}
 
 function waitCanPlay(el: HTMLMediaElement): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -24,23 +71,11 @@ function waitCanPlay(el: HTMLMediaElement): Promise<void> {
   });
 }
 
-function attachTrimEndGuard(el: HTMLMediaElement, windowEnd: number) {
-  const onTimeUpdate = () => {
-    if (el.currentTime < windowEnd - 0.03) return;
-    el.pause();
-    el.removeEventListener('timeupdate', onTimeUpdate);
-    el.dispatchEvent(new Event('ended'));
-  };
-  el.addEventListener('timeupdate', onTimeUpdate);
-}
-
 export function createTrackElement(track: JamTrack): HTMLMediaElement {
   const el = document.createElement(track.kind === 'video' ? 'video' : 'audio');
   el.src = track.blobUrl;
   el.preload = 'auto';
-  const vol = track.volume ?? 1;
-  el.volume = vol;
-  el.muted = vol === 0;
+  ensureGainNode(el);
   el.dataset.trackId = String(track.id);
   if (track.kind === 'video') {
     (el as HTMLVideoElement).playsInline = true;
@@ -57,62 +92,47 @@ export async function loadTrackElement(track: JamTrack): Promise<HTMLMediaElemen
   return el;
 }
 
-/** Play from trim start with no sync offset (solo preview). */
-export function playTrackFromStart(el: HTMLMediaElement, track: JamTrack): void {
-  const windowStart = trackTrimStartSec(track);
-  const windowEnd = trackPlayableEndSec(track);
-  el.currentTime = windowStart;
-  attachTrimEndGuard(el, windowEnd);
-  void el.play().catch(() => {});
+export function cancelPendingSyncPlays(_elements: HTMLMediaElement[]): void {
+  /* mix transport is driven by elapsed time */
 }
 
-const pendingSyncPlayTimers = new WeakMap<HTMLMediaElement, number>();
+/** Position a track for the current mix session elapsed time. */
+export function applyMixTransport(
+  el: HTMLMediaElement,
+  track: JamTrack,
+  elapsedSec: number,
+): void {
+  const vol = track.volume ?? 1;
+  const fileTime = trackFileTimeAtSessionElapsed(track, elapsedSec);
 
-export function cancelPendingSyncPlay(el: HTMLMediaElement): void {
-  const id = pendingSyncPlayTimers.get(el);
-  if (id == null) return;
-  window.clearTimeout(id);
-  pendingSyncPlayTimers.delete(el);
-}
-
-export function cancelPendingSyncPlays(elements: HTMLMediaElement[]): void {
-  elements.forEach(cancelPendingSyncPlay);
-}
-
-/** Apply trim window and per-track sync offset, then play. */
-export function applySyncOffsetAndPlay(el: HTMLMediaElement, track: JamTrack): void {
-  cancelPendingSyncPlay(el);
-  const offset = track.syncOffsetSec ?? 0;
-  const windowStart = trackTrimStartSec(track);
-  const windowEnd = trackPlayableEndSec(track);
-
-  const begin = () => {
-    pendingSyncPlayTimers.delete(el);
-    // Stopped / torn down before delayed start fired.
-    if (!el.src) return;
-    let start = windowStart;
-    if (offset < 0) {
-      start = Math.min(windowEnd, windowStart + Math.max(0, -offset));
-    }
-    el.currentTime = start;
-    attachTrimEndGuard(el, windowEnd);
-    void el.play().catch(() => {});
-  };
-
-  if (offset > 0) {
-    el.currentTime = windowStart;
-    const id = window.setTimeout(begin, offset * 1000);
-    pendingSyncPlayTimers.set(el, id);
+  if (vol === 0 || fileTime == null) {
+    setGainValue(el, 0);
+    if (!el.paused) el.pause();
     return;
   }
-  begin();
+
+  if (Math.abs(el.currentTime - fileTime) > 0.03) {
+    el.currentTime = fileTime;
+  }
+  setGainValue(el, vol);
+  if (el.paused) void el.play().catch(() => {});
 }
 
-/** Start tracks together, honoring trim + syncOffsetSec. */
-export function startTracksWithSync(tracks: JamTrack[], elements: HTMLMediaElement[]): void {
+/** Prime mix elements before the transport loop takes over. */
+export function primeMixTransport(tracks: JamTrack[], elements: HTMLMediaElement[]): void {
   tracks.forEach((track, i) => {
-    applySyncOffsetAndPlay(elements[i], track);
+    const el = elements[i];
+    el.pause();
+    applyMixTransport(el, track, 0);
   });
+}
+
+export function mixSessionDurationSec(tracks: JamTrack[]): number {
+  if (tracks.length === 0) return 1;
+  return Math.max(
+    0.001,
+    ...tracks.map((t) => trackSessionDurationSec(t)),
+  );
 }
 
 export async function preloadGuideTracks(tracks: JamTrack[]): Promise<HTMLMediaElement[]> {

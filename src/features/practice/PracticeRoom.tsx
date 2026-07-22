@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type ChangeEvent,
 } from 'react';
 import type { PracticeSessionMeta } from '../../types';
 import type { PositionId } from '../../types';
@@ -11,20 +12,22 @@ import {
   POSITIONS,
   analyzeMedia,
   drawWaveform,
-  pickRecorderMime,
   slicePeaks,
   trackPlayableDuration,
   trackPlayableEndSec,
+  trackSessionDurationSec,
+  trackSyncOffsetSec,
   trackTrimStartSec,
   type JamTrack,
   type MediaKind,
 } from './jamUtils';
 import {
+  applyMixTransport,
   cancelPendingSyncPlays,
   loadTrackElement,
-  playTrackFromStart,
-  preloadGuideTracks,
-  startTracksWithSync,
+  mixSessionDurationSec,
+  primeMixTransport,
+  setElementVolume,
 } from './practicePlayback';
 import { WaveformTrimSheet } from './WaveformTrimSheet';
 import { RecordPreviewSheet, type RecordPreviewData } from './RecordPreviewSheet';
@@ -55,12 +58,17 @@ interface Props {
   onBack: () => void;
 }
 
-function describeGuide(audible: number, total: number, metro: boolean) {
-  const parts: string[] = [];
-  if (audible > 0) parts.push(audible === total ? `이전 ${audible}개 트랙` : `트랙 ${audible}/${total}개`);
-  if (metro) parts.push('메트로놈');
-  if (!parts.length) return '가이드 없이 녹음';
-  return parts.join(' + ') + ' 들으며';
+function fileMatchesKind(file: File, kind: MediaKind): boolean {
+  if (kind === 'audio') {
+    return (
+      file.type.startsWith('audio/') ||
+      /\.(mp3|wav|m4a|aac|ogg|flac|webm)$/i.test(file.name)
+    );
+  }
+  return (
+    file.type.startsWith('video/') ||
+    /\.(mp4|mov|webm|m4v|mkv)$/i.test(file.name)
+  );
 }
 
 const SYNC_NUDGE_FINE = 0.001;
@@ -75,35 +83,46 @@ function formatSyncOffset(sec: number): string {
 }
 
 function syncWaveformLayout(t: JamTrack, timeline: number) {
-  const syncSec = t.syncOffsetSec ?? 0;
+  const syncSec = trackSyncOffsetSec(t);
   const playable = trackPlayableDuration(t);
-  const clipPct = Math.min(100, Math.max(2, (playable / timeline) * 100));
+  const clipPct = Math.max(2, (playable / timeline) * 100);
   const clipLeftPct = (syncSec / timeline) * 100;
   return { clipPct, clipLeftPct };
 }
 
-/** Solo playhead: cell left = trim start, independent of sync offset. */
-function trackTimelineProgress(
-  currentTime: number,
-  track: JamTrack,
-  timeline: number,
-): number {
-  const trimStart = trackTrimStartSec(track);
-  return Math.min(1, Math.max(0, (currentTime - trimStart) / timeline));
+/**
+ * 0–1 progress within a track's full playable clip (trimStart → windowEnd),
+ * driven by the actual file position at the given session elapsed time.
+ * Used for waveform highlight, which is drawn over the full-clip peaks.
+ */
+function trackMixLocalProgress(t: JamTrack, elapsedSec: number): number {
+  const offset = trackSyncOffsetSec(t);
+  const playable = trackPlayableDuration(t);
+  if (playable <= 0) return 0;
+  if (offset > 0 && elapsedSec <= offset) return 0;
+  if (elapsedSec >= offset + playable) return 1;
+  return (elapsedSec - offset) / playable;
 }
 
-/** Highlight progress within the clip; follows playhead vs waveform position. */
-function trackWaveformLocalProgress(
+/**
+ * Solo playback is driven by the same elapsed-time transport as mix (see
+ * `applyMixTransport`), just for a single track, so both modes share the
+ * exact same visual math: `playProgress` is always "seconds elapsed since
+ * the left wall / shared timeline", 0–1.
+ */
+function trackVisualLocalProgress(
   t: JamTrack,
   timeline: number,
-  timelineProgress: number,
-): number | null {
-  const { clipPct, clipLeftPct } = syncWaveformLayout(t, timeline);
-  if (clipPct <= 0) return 0;
-  const playheadPct = timelineProgress * 100;
-  if (playheadPct <= clipLeftPct) return 0;
-  if (playheadPct >= clipLeftPct + clipPct) return 1;
-  return (playheadPct - clipLeftPct) / clipPct;
+  playProgress: number,
+  mode: 'mix' | 'solo' | 'idle',
+): number {
+  if (mode === 'idle' || playProgress <= 0) return 0;
+  return trackMixLocalProgress(t, playProgress * timeline);
+}
+
+function trackPlayheadLeftPct(playProgress: number, mode: 'mix' | 'solo' | 'idle'): number {
+  if (mode === 'idle' || playProgress <= 0) return 0;
+  return playProgress * 100;
 }
 
 function trackVolume(t: JamTrack): number {
@@ -170,14 +189,11 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const [tracks, setTracks] = useState<JamTrack[]>(() =>
     useDb ? [] : loadSessionTracks(session.id).map(fromStoredTrack),
   );
-  const [bpm, setBpm] = useState(session.bpm);
-  const [metro, setMetro] = useState(true);
-  const [recording, setRecording] = useState(false);
   const [mixPlaying, setMixPlaying] = useState(false);
   const [soloId, setSoloId] = useState<number | null>(null);
   const [status, setStatus] = useState('');
   const [transportLabel, setTransportLabel] = useState('새 트랙 올리기');
-  const [transportSub, setTransportSub] = useState('● 눌러 포지션 선택');
+  const [transportSub, setTransportSub] = useState('+ 눌러 포지션 선택');
 
   const [posOpen, setPosOpen] = useState(false);
   const [mediaKind, setMediaKind] = useState<MediaKind>('audio');
@@ -188,24 +204,12 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const [recordPreview, setRecordPreview] = useState<RecordPreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const mimeRef = useRef('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingRef = useRef<PendingPos | null>(null);
-  const metroTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeRef = useRef<HTMLMediaElement[]>([]);
   const rafRef = useRef<number | null>(null);
-  const camPreviewRef = useRef<HTMLVideoElement>(null);
 
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
-  const sessionLockRef = useRef(false);
-  const countInDoneRef = useRef(false);
-  const finishLockRef = useRef(false);
-  const recordingPhaseRef = useRef<'idle' | 'counting' | 'recording'>('idle');
-  const guideElementsRef = useRef<HTMLMediaElement[]>([]);
-  const guideLoadGenRef = useRef(0);
   const transportStartRef = useRef<number | null>(null);
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
@@ -226,7 +230,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       const stored = next.map(toStoredTrack);
       if (!useDb) {
         const ok = saveSessionTracks(session.id, stored);
-        if (!ok) setStatus('녹음 저장 공간이 부족해요. 오래된 트랙을 삭제해주세요.');
+        if (!ok) setStatus('트랙 저장 공간이 부족해요. 오래된 트랙을 삭제해주세요.');
         return;
       }
 
@@ -332,30 +336,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     persistTracks(tracks);
   }, [tracks, persistTracks, tracksLoading]);
 
-  const maxDur = useCallback(
-    () => tracks.reduce((m, t) => Math.max(m, trackPlayableDuration(t)), 0) || 1,
-    [tracks],
-  );
-
-  const getCtx = () => {
-    if (!audioCtxRef.current) {
-      const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      audioCtxRef.current = new AC();
-    }
-    return audioCtxRef.current;
-  };
-
-  const click = (strong: boolean) => {
-    const ctx = getCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.frequency.value = strong ? 1400 : 900;
-    gain.gain.setValueAtTime(0.14, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.08);
-  };
+  const maxDur = useCallback(() => mixSessionDurationSec(tracks), [tracks]);
 
   const stopAll = useCallback(() => {
     cancelPendingSyncPlays(activeRef.current);
@@ -378,11 +359,15 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const paintWaveforms = useCallback(
     (progress: Record<number, number> | null) => {
       const timeline = maxDur();
+      const mode: 'mix' | 'solo' | 'idle' = mixPlaying ? 'mix' : soloId != null ? 'solo' : 'idle';
       tracks.forEach((t) => {
         const canvas = canvasRefs.current.get(t.id);
         const global = progress?.[t.id];
+        const trackMode = soloId === t.id && !mixPlaying ? 'solo' : mode;
         const local =
-          global != null ? trackWaveformLocalProgress(t, timeline, global) : null;
+          global != null && trackMode !== 'idle'
+            ? trackVisualLocalProgress(t, timeline, global, trackMode)
+            : null;
         const trimmedPeaks = slicePeaks(
           t.peaks,
           trackTrimStartSec(t),
@@ -392,7 +377,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         drawWaveform(canvas ?? null, trimmedPeaks, t.color, local);
       });
     },
-    [tracks, maxDur],
+    [tracks, maxDur, soloId, mixPlaying],
   );
 
   useEffect(() => {
@@ -402,28 +387,44 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const syncLoop = useCallback(() => {
     const timeline = maxDur();
     const next: Record<number, number> = {};
-    if (mixPlaying || recording) {
+    if (mixPlaying) {
       const start = transportStartRef.current;
       if (start != null && timeline > 0) {
         const elapsed = (performance.now() - start) / 1000;
+        if (elapsed >= timeline) {
+          stopAll();
+          return;
+        }
         const p = Math.min(1, elapsed / timeline);
         tracks.forEach((t) => {
           next[t.id] = p;
         });
+        tracksRef.current.filter(isTrackAudible).forEach((t) => {
+          const el = activeRef.current.find((x) => x.dataset.trackId === String(t.id));
+          if (el) applyMixTransport(el, t, elapsed);
+        });
       }
     } else if (soloId != null) {
       const solo = tracks.find((t) => t.id === soloId);
+      const start = transportStartRef.current;
       const a = activeRef.current.find((x) => x.dataset.trackId === String(soloId));
-      if (a && solo) {
-        next[soloId] = trackTimelineProgress(a.currentTime, solo, timeline);
+      if (a && solo && start != null) {
+        const elapsed = (performance.now() - start) / 1000;
+        const soloEnd = trackSessionDurationSec(solo);
+        if (elapsed >= soloEnd) {
+          stopAll();
+          return;
+        }
+        next[soloId] = timeline > 0 ? Math.min(1, elapsed / timeline) : 0;
+        applyMixTransport(a, solo, elapsed);
       }
     }
     setPlayProgress(next);
     paintWaveforms(next);
-  }, [maxDur, mixPlaying, recording, soloId, tracks, paintWaveforms]);
+  }, [maxDur, mixPlaying, soloId, tracks, paintWaveforms, stopAll]);
 
   useEffect(() => {
-    if (!mixPlaying && !recording && soloId == null) return;
+    if (!mixPlaying && soloId == null) return;
     const tick = () => {
       syncLoop();
       rafRef.current = requestAnimationFrame(tick);
@@ -432,114 +433,53 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [mixPlaying, recording, soloId, syncLoop]);
+  }, [mixPlaying, soloId, syncLoop]);
 
-  const playTrack = (t: JamTrack, onEnd?: () => void) => {
-    void loadTrackElement(t)
+  /** Solo preview: drive playback with the same elapsed-time transport as
+   * mix (single-track), so it also waits out a positive sync offset before
+   * making sound instead of skipping straight to the clip. */
+  const playTrack = (t: JamTrack, onFail?: () => void) => {
+    const latest = tracksRef.current.find((x) => x.id === t.id) ?? t;
+    void loadTrackElement(latest)
       .then((el) => {
         activeRef.current.push(el);
-        el.addEventListener('ended', () => {
-          activeRef.current = activeRef.current.filter((x) => x !== el);
-          onEnd?.();
-        });
-        playTrackFromStart(el, t);
+        transportStartRef.current = performance.now();
+        primeMixTransport([latest], [el]);
       })
-      .catch(() => onEnd?.());
-    return null;
-  };
-
-  const releaseGuideElements = () => {
-    cancelPendingSyncPlays(guideElementsRef.current);
-    guideElementsRef.current.forEach((el) => {
-      try {
-        el.pause();
-        el.removeAttribute('src');
-        el.load();
-      } catch {
-        /* ignore */
-      }
-    });
-    guideElementsRef.current = [];
-  };
-
-  const releaseRecordingHardware = () => {
-    if (metroTimerRef.current) {
-      clearInterval(metroTimerRef.current);
-      metroTimerRef.current = null;
-    }
-    releaseGuideElements();
-    guideLoadGenRef.current += 1;
-    stopAll();
-    if (recorderRef.current) {
-      recorderRef.current.onstop = null;
-      if (recorderRef.current.state !== 'inactive') {
-        try {
-          recorderRef.current.stop();
-        } catch {
-          /* ignore */
-        }
-      }
-      recorderRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((tr) => tr.stop());
-      streamRef.current = null;
-    }
-    if (camPreviewRef.current) camPreviewRef.current.srcObject = null;
-    sessionLockRef.current = false;
-    countInDoneRef.current = false;
-    recordingPhaseRef.current = 'idle';
-    setRecording(false);
+      .catch(() => onFail?.());
   };
 
   const resetTransport = () => {
     setTransportLabel('새 트랙 올리기');
-    setTransportSub('● 눌러 포지션 선택');
+    setTransportSub('+ 눌러 포지션 선택');
   };
 
-  const cleanupRec = () => {
-    releaseRecordingHardware();
-    resetTransport();
-  };
-
-  const finishRecording = async () => {
-    if (finishLockRef.current) return;
-    finishLockRef.current = true;
-
+  const handleFilePick = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
     const pos = pendingRef.current;
     pendingRef.current = null;
-    const chunks = chunksRef.current.slice();
-    chunksRef.current = [];
+    if (!file || !pos) return;
 
-    if (recorderRef.current) {
-      recorderRef.current.onstop = null;
-      recorderRef.current = null;
-    }
-
-    releaseRecordingHardware();
-
-    if (!chunks.length || !pos) {
-      finishLockRef.current = false;
-      resetTransport();
-      setStatus('녹음된 내용이 없어요.');
+    if (!fileMatchesKind(file, pos.kind)) {
+      setStatus(
+        pos.kind === 'video'
+          ? '동영상 파일을 선택해 주세요.'
+          : '오디오 파일을 선택해 주세요.',
+      );
       return;
     }
 
     setPreviewLoading(true);
-    setTransportLabel('녹음 확인 준비 중…');
+    setTransportLabel('파일 확인 준비 중…');
     setTransportSub('잠시만 기다려 주세요');
 
-    const kind = pos.kind || 'audio';
-    const blob = new Blob(chunks, {
-      type: mimeRef.current || (kind === 'video' ? 'video/webm' : 'audio/webm'),
-    });
-    const blobUrl = URL.createObjectURL(blob);
-
+    const blobUrl = URL.createObjectURL(file);
     try {
       const analyzed = await analyzeMedia(blobUrl);
       setRecordPreview({
         blobUrl,
-        kind,
+        kind: pos.kind,
         positionId: pos.id,
         positionLabel: pos.label,
         name: pos.nick || `트랙 ${tracks.length + 1}`,
@@ -547,16 +487,15 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         peaks: analyzed.peaks,
         duration: analyzed.duration,
       });
-      setTransportLabel('녹음 확인');
-      setTransportSub('들어보고 올릴지 선택하세요');
+      setTransportLabel('파일 확인');
+      setTransportSub('미리 듣고 올릴지 선택하세요');
       setStatus('');
     } catch {
       URL.revokeObjectURL(blobUrl);
       resetTransport();
-      setStatus('녹음을 불러오지 못했어요. 다시 시도해 주세요.');
+      setStatus('파일을 불러오지 못했어요. 다른 파일로 다시 시도해 주세요.');
     } finally {
       setPreviewLoading(false);
-      finishLockRef.current = false;
     }
   };
 
@@ -587,197 +526,32 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     if (recordPreview) URL.revokeObjectURL(recordPreview.blobUrl);
     setRecordPreview(null);
     resetTransport();
-    setStatus('녹음을 버렸어요.');
-  };
-
-  const beginRecord = async (guide: JamTrack[], useMetro: boolean, beatMs: number) => {
-    if (countInDoneRef.current || recordingPhaseRef.current === 'recording') return;
-    countInDoneRef.current = true;
-    recordingPhaseRef.current = 'recording';
-
-    setTransportLabel(`${pendingRef.current?.label || '녹음'} ${pendingRef.current?.kind === 'video' ? '녹화' : '녹음'} 중`);
-    const audible = guide.filter(isTrackAudible);
-    setTransportSub(
-      describeGuide(audible.length, guide.length, useMetro) +
-        (guide.length ? ' · 트랙 볼륨으로 가이드 조절' : ''),
-    );
-
-    const kind = pendingRef.current?.kind || 'audio';
-    mimeRef.current = pickRecorderMime(kind);
-    const stream = streamRef.current;
-    if (!stream) {
-      countInDoneRef.current = false;
-      recordingPhaseRef.current = 'idle';
-      sessionLockRef.current = false;
-      setRecording(false);
-      return;
-    }
-
-    let guideElements = guideElementsRef.current;
-    if (guideElements.length !== guide.length) {
-      try {
-        guideElements = await preloadGuideTracks(guide);
-        guideElementsRef.current = guideElements;
-      } catch {
-        countInDoneRef.current = false;
-        recordingPhaseRef.current = 'idle';
-        sessionLockRef.current = false;
-        setRecording(false);
-        setStatus('가이드 트랙을 불러오지 못했어요. 네트워크를 확인해주세요.');
-        return;
-      }
-    } else {
-      guideElements.forEach((el, i) => {
-        const vol = trackVolume(guide[i]);
-        el.volume = vol;
-        el.muted = vol === 0;
-        el.currentTime = 0;
-      });
-    }
-
-    guideElements.forEach((el) => {
-      activeRef.current.push(el);
-    });
-
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      recorderRef.current.onstop = null;
-      try {
-        recorderRef.current.stop();
-      } catch {
-        /* ignore */
-      }
-    }
-
-    recorderRef.current = mimeRef.current
-      ? new MediaRecorder(stream, { mimeType: mimeRef.current })
-      : new MediaRecorder(stream);
-    chunksRef.current = [];
-    recorderRef.current.ondataavailable = (e) => {
-      if (e.data?.size) chunksRef.current.push(e.data);
-    };
-    recorderRef.current.onstop = () => {
-      if (recorderRef.current) recorderRef.current.onstop = null;
-      void finishRecording();
-    };
-
-    if (useMetro) {
-      let beat = 0;
-      metroTimerRef.current = setInterval(() => {
-        click(beat % 4 === 0);
-        beat++;
-      }, beatMs);
-    }
-
-    recorderRef.current.start();
-    transportStartRef.current = performance.now();
-    startTracksWithSync(guide, guideElements);
-  };
-
-  const startSession = async (pos: PendingPos) => {
-    if (sessionLockRef.current || recordingPhaseRef.current !== 'idle' || recordPreview) return;
-    sessionLockRef.current = true;
-    countInDoneRef.current = false;
-    recordingPhaseRef.current = 'counting';
-    pendingRef.current = pos;
-
-    const ctx = getCtx();
-    if (ctx.state === 'suspended') await ctx.resume();
-
-    try {
-      streamRef.current = await navigator.mediaDevices.getUserMedia(
-        pos.kind === 'video'
-          ? { audio: true, video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } }
-          : { audio: true },
-      );
-    } catch {
-      sessionLockRef.current = false;
-      recordingPhaseRef.current = 'idle';
-      pendingRef.current = null;
-      setStatus(pos.kind === 'video' ? '카메라·마이크 권한 필요' : '마이크 권한 필요');
-      return;
-    }
-
-    if (pos.kind === 'video' && camPreviewRef.current) {
-      camPreviewRef.current.srcObject = streamRef.current;
-    }
-
-    setRecording(true);
-    setPosOpen(false);
-    const beatMs = 60000 / Math.max(20, Math.min(300, bpm));
-    const guide = tracks;
-    const who = `${pos.label}${pos.nick !== pos.label ? ' · ' + pos.nick : ''}`;
-    setTransportLabel(`${who} 카운트인...`);
-    setTransportSub(describeGuide(guide.filter(isTrackAudible).length, guide.length, metro) + ' 준비');
-
-    releaseGuideElements();
-    const loadGen = ++guideLoadGenRef.current;
-    void preloadGuideTracks(guide)
-      .then((elements) => {
-        if (loadGen !== guideLoadGenRef.current) {
-          elements.forEach((el) => {
-            el.pause();
-            el.removeAttribute('src');
-            el.load();
-          });
-          return;
-        }
-        guideElementsRef.current = elements;
-      })
-      .catch(() => {
-        if (loadGen === guideLoadGenRef.current) guideElementsRef.current = [];
-      });
-
-    let beat = 0;
-    metroTimerRef.current = setInterval(() => {
-      click(beat % 4 === 0);
-      beat++;
-      if (beat >= 4) {
-        if (metroTimerRef.current) clearInterval(metroTimerRef.current);
-        metroTimerRef.current = null;
-        beginRecord(guide, metro, beatMs);
-      }
-    }, beatMs);
-  };
-
-  const stopRec = () => {
-    if (metroTimerRef.current) {
-      clearInterval(metroTimerRef.current);
-      metroTimerRef.current = null;
-    }
-    const rec = recorderRef.current;
-    if (rec && rec.state !== 'inactive') {
-      rec.stop();
-    } else {
-      pendingRef.current = null;
-      cleanupRec();
-    }
+    setStatus('파일을 버렸어요.');
   };
 
   const openPos = () => {
     if (recordPreview || previewLoading) return;
-    if (recording) {
-      stopRec();
-      return;
-    }
-    if (mixPlaying) {
-      stopAll();
-      return;
-    }
+    if (mixPlaying) stopAll();
     if (soloId != null) stopAll();
     setPosOpen(true);
     setSelPos(null);
   };
 
   const confirmPos = () => {
-    if (!selPos || sessionLockRef.current) return;
+    if (!selPos || previewLoading) return;
     const p = POSITIONS.find((x) => x.id === selPos)!;
-    startSession({
+    pendingRef.current = {
       id: p.id,
       label: p.label,
       color: p.color,
       nick: getUploaderNick(),
       kind: mediaKind,
-    });
+    };
+    setPosOpen(false);
+    const input = fileInputRef.current;
+    if (!input) return;
+    input.accept = mediaKind === 'video' ? 'video/*' : 'audio/*';
+    input.click();
   };
 
   const isOwnTrack = useCallback(
@@ -793,17 +567,11 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
 
   const setTrackVolume = (id: number, volume: number) => {
     const vol = Math.max(0, Math.min(1, volume));
+    activeRef.current.forEach((a) => {
+      if (a.dataset.trackId === String(id)) setElementVolume(a, vol);
+    });
     setTracks((prev) =>
-      prev.map((t) => {
-        if (t.id !== id) return t;
-        activeRef.current.forEach((a) => {
-          if (a.dataset.trackId === String(id)) {
-            a.volume = vol;
-            a.muted = vol === 0;
-          }
-        });
-        return { ...t, volume: vol };
-      }),
+      prev.map((t) => (t.id === id ? { ...t, volume: vol } : t)),
     );
   };
 
@@ -832,7 +600,6 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   };
 
   const toggleSolo = (id: number) => {
-    if (recording) return;
     if (mixPlaying) stopAll();
     if (soloId === id) {
       stopAll();
@@ -875,13 +642,12 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   };
 
   const toggleMix = () => {
-    if (recording) return;
     if (soloId != null) stopAll();
     if (mixPlaying) {
       stopAll();
       return;
     }
-    const list = tracks.filter(isTrackAudible);
+    const list = tracksRef.current.filter(isTrackAudible);
     if (list.length === 0) {
       setStatus('재생할 트랙이 없어요');
       return;
@@ -889,20 +655,15 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     setStatus('믹스 준비 중…');
     void Promise.all(list.map((t) => loadTrackElement(t)))
       .then((elements) => {
+        const latest = tracksRef.current;
+        const syncedList = list.map((t) => latest.find((x) => x.id === t.id) ?? t);
         setStatus('');
         setMixPlaying(true);
-        let done = 0;
-        const total = elements.length;
         elements.forEach((el) => {
           activeRef.current.push(el);
-          el.addEventListener('ended', () => {
-            activeRef.current = activeRef.current.filter((x) => x !== el);
-            done++;
-            if (done >= total) stopAll();
-          });
         });
         transportStartRef.current = performance.now();
-        startTracksWithSync(list, elements);
+        primeMixTransport(syncedList, elements);
       })
       .catch(() => {
         setStatus('트랙을 불러오지 못했어요. 잠시 후 다시 시도해주세요.');
@@ -952,14 +713,21 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         )}
       </header>
 
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="file-input-hidden"
+        onChange={(e) => void handleFilePick(e)}
+      />
+
       <div className="transport">
         <button
           type="button"
-          className={`rec-btn ${recording ? 'on' : ''}`}
+          className="upload-btn"
           disabled={!!recordPreview || previewLoading}
           onClick={openPos}
         >
-          {recording ? '■' : '●'}
+          +
         </button>
         <div className="transport-info">
           <div className="transport-label">{transportLabel}</div>
@@ -973,22 +741,6 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         >
           {mixPlaying ? '■' : '▶'}
         </button>
-      </div>
-
-      <div className="settings-row">
-        <label>
-          <input type="checkbox" checked={metro} onChange={(e) => setMetro(e.target.checked)} />{' '}
-          메트로놈
-        </label>
-        <span>♩ =</span>
-        <input
-          type="number"
-          className="bpm-input"
-          value={bpm}
-          min={20}
-          max={300}
-          onChange={(e) => setBpm(parseInt(e.target.value, 10) || 92)}
-        />
       </div>
 
       {videoTracks.length > 0 && (
@@ -1005,12 +757,15 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       )}
 
       {tracks.length === 0 && (
-        <div className="empty-hint">● 눌러 첫 트랙을 녹음·녹화하세요.</div>
+        <div className="empty-hint">+ 눌러 첫 트랙 파일을 올리세요.</div>
       )}
 
       {tracks.map((t) => {
         const { clipPct, clipLeftPct } = syncWaveformLayout(t, timeline);
         const prog = playProgress[t.id] ?? 0;
+        const trackMode: 'mix' | 'solo' | 'idle' =
+          mixPlaying ? 'mix' : soloId === t.id ? 'solo' : 'idle';
+        const playheadLeft = trackPlayheadLeftPct(prog, trackMode);
         return (
           <div
             key={t.id}
@@ -1101,7 +856,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
               )}
               <button
                 type="button"
-                className={`waveform ${prog > 0 ? 'is-playing' : ''}${isOwnTrack(t) ? ' waveform--tap' : ''}`}
+                className={`waveform ${mixPlaying || soloId === t.id ? 'is-playing' : ''}${isOwnTrack(t) ? ' waveform--tap' : ''}`}
                 onClick={() => {
                   if (isOwnTrack(t)) setTrimTrackId(t.id);
                 }}
@@ -1120,7 +875,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                     }}
                   />
                 </div>
-                <div className="playhead" style={{ left: `${prog * 100}%` }} />
+                <div className="playhead" style={{ left: `${playheadLeft}%` }} />
               </button>
             </div>
             <div className="track-actions">
@@ -1132,7 +887,8 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                   max={100}
                   step={1}
                   value={Math.round(trackVolume(t) * 100)}
-                  onChange={(e) => setTrackVolume(t.id, Number(e.target.value) / 100)}
+                  onInput={(e) => setTrackVolume(t.id, Number(e.currentTarget.value) / 100)}
+                  onChange={(e) => setTrackVolume(t.id, Number(e.currentTarget.value) / 100)}
                   aria-label="볼륨"
                 />
               </label>
@@ -1149,11 +905,6 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       })}
 
       {status && <p className="status-line">{status}</p>}
-
-      <div className={`cam-preview ${recording && pendingRef.current?.kind === 'video' ? 'show' : ''}`}>
-        <span>REC</span>
-        <video ref={camPreviewRef} autoPlay muted playsInline />
-      </div>
 
       {recordPreview ? (
         <RecordPreviewSheet
@@ -1177,7 +928,9 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         <div className="pos-overlay open" onClick={() => setPosOpen(false)}>
           <div className="pos-sheet" onClick={(e) => e.stopPropagation()}>
             <h2>포지션 · 미디어</h2>
-            <p className="pos-nick-hint">올린 트랙에는 {getUploaderNick()} 으로 표시돼요.</p>
+            <p className="pos-nick-hint">
+              기기에 녹음한 파일을 올릴 수 있어요. 트랙에는 {getUploaderNick()} 으로 표시돼요.
+            </p>
             <div className="media-mode">
               <button
                 type="button"
@@ -1212,7 +965,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                 취소
               </button>
               <button type="button" className="btn btn-primary" disabled={!selPos} onClick={confirmPos}>
-                {mediaKind === 'video' ? '녹화 시작' : '녹음 시작'}
+                {mediaKind === 'video' ? '동영상 선택' : '오디오 선택'}
               </button>
             </div>
           </div>

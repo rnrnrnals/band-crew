@@ -17,7 +17,7 @@ export interface JamTrack {
   kind: MediaKind;
   /** Set when uploaded via Supabase auth; used for sync nudge permissions */
   authorUserId?: string;
-  /** Positive = play later; negative = trim start / play earlier (seconds) */
+  /** Timeline position of the clip's left edge (seconds). Negative = extends before wall. */
   syncOffsetSec?: number;
   /** Seconds cut from the start of the source media */
   trimStartSec?: number;
@@ -45,6 +45,34 @@ export function trackPlayableEndSec(track: JamTrack): number {
   return Math.max(trackTrimStartSec(track), total - trackTrimEndSec(track));
 }
 
+export function trackSyncOffsetSec(track: JamTrack): number {
+  return track.syncOffsetSec ?? 0;
+}
+
+/** Total session timeline length contributed by this track. */
+export function trackSessionDurationSec(track: JamTrack): number {
+  return trackSyncOffsetSec(track) + trackPlayableDuration(track);
+}
+
+/**
+ * File playhead for a position on the shared session timeline.
+ * Timeline 0 = left wall; clip left edge sits at syncOffsetSec.
+ */
+export function trackFileTimeAtSessionElapsed(
+  track: JamTrack,
+  elapsedSec: number,
+): number | null {
+  const offset = trackSyncOffsetSec(track);
+  const playable = trackPlayableDuration(track);
+  const trimStart = trackTrimStartSec(track);
+  const windowEnd = trackPlayableEndSec(track);
+
+  if (offset > 0 && elapsedSec < offset) return null;
+  if (elapsedSec >= offset + playable) return null;
+
+  return Math.min(windowEnd, Math.max(trimStart, trimStart + (elapsedSec - offset)));
+}
+
 export function slicePeaks(
   peaks: number[] | undefined,
   startSec: number,
@@ -66,25 +94,6 @@ export const POSITIONS = (Object.keys(POSITION_LABELS) as PositionId[]).map((id)
   color: POSITION_COLORS[id],
   art: POS_ART[id],
 }));
-
-export function pickRecorderMime(kind: MediaKind) {
-  const videoTypes = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm',
-    'video/mp4',
-  ];
-  const audioTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
-  const list = kind === 'video' ? videoTypes : audioTypes;
-  return (
-    list.find(
-      (c) =>
-        typeof MediaRecorder !== 'undefined' &&
-        MediaRecorder.isTypeSupported &&
-        MediaRecorder.isTypeSupported(c),
-    ) || ''
-  );
-}
 
 export async function analyzeMedia(blobUrl: string): Promise<{ peaks: number[]; duration: number }> {
   try {

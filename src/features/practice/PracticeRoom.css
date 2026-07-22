@@ -65,31 +65,28 @@
   margin-bottom: 12px;
 }
 
-.rec-btn {
+.upload-btn {
   width: 50px;
   height: 50px;
   border-radius: 50%;
   border: none;
-  background: var(--record);
+  background: var(--amber);
   color: #fff;
-  font-size: 18px;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1;
   cursor: pointer;
   flex-shrink: 0;
   box-shadow: var(--shadow-md);
 }
 
-.rec-btn.on {
-  animation: pulse 1s ease-in-out infinite;
+.upload-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(255, 48, 64, 0.45);
-  }
-  50% {
-    box-shadow: 0 0 0 8px rgba(255, 48, 64, 0);
-  }
+.file-input-hidden {
+  display: none;
 }
 
 .transport-info {
@@ -125,34 +122,6 @@
 
 .play-all:disabled {
   opacity: 0.35;
-}
-
-.settings-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: flex-end;
-  font-size: 12px;
-  color: var(--text-faint);
-  margin-bottom: 12px;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.settings-row label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-}
-
-.bpm-input {
-  width: 44px;
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  border-radius: 6px;
-  color: var(--amber);
-  padding: 3px 4px;
-  text-align: center;
 }
 
 .video-stage {
@@ -457,43 +426,6 @@
   color: var(--amber);
   font-size: 12px;
   margin-top: 8px;
-}
-
-.cam-preview {
-  position: fixed;
-  right: 12px;
-  bottom: calc(var(--tab-h) + var(--safe-bottom) + 12px);
-  width: min(160px, 38vw);
-  z-index: 25;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 2px solid var(--amber);
-  display: none;
-  background: #000;
-}
-
-.cam-preview.show {
-  display: block;
-}
-
-.cam-preview span {
-  position: absolute;
-  left: 6px;
-  top: 6px;
-  z-index: 1;
-  font-size: 9px;
-  font-weight: 700;
-  background: var(--red);
-  color: #fff;
-  padding: 2px 6px;
-  border-radius: 999px;
-}
-
-.cam-preview video {
-  width: 100%;
-  aspect-ratio: 4/3;
-  object-fit: cover;
-  transform: scaleX(-1);
 }
 
 .pos-overlay {
