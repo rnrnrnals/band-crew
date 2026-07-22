@@ -38,10 +38,10 @@ export function RecordPreviewSheet({ preview, onConfirm, onDiscard }: RecordPrev
         className="record-preview-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label="녹음 확인"
+        aria-label="파일 확인"
       >
         <header className="record-preview-head">
-          <h2>녹음 확인</h2>
+          <h2>파일 확인</h2>
         </header>
 
         <p className="record-preview-sub">
@@ -60,7 +60,7 @@ export function RecordPreviewSheet({ preview, onConfirm, onDiscard }: RecordPrev
           )}
         </div>
 
-        <p className="record-preview-hint">들어보고 세션에 올릴지 선택하세요.</p>
+        <p className="record-preview-hint">미리 듣고 세션에 올릴지 선택하세요.</p>
 
         <div className="record-preview-actions">
           <button type="button" className="btn" onClick={onDiscard}>
