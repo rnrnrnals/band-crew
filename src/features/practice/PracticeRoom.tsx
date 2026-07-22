@@ -15,7 +15,6 @@ import {
   slicePeaks,
   trackPlayableDuration,
   trackPlayableEndSec,
-  trackSessionDurationSec,
   trackSyncOffsetSec,
   trackTrimStartSec,
   type JamTrack,
@@ -104,10 +103,11 @@ function trackMixLocalProgress(t: JamTrack, elapsedSec: number): number {
 }
 
 /**
- * Solo playback is driven by the same elapsed-time transport as mix (see
- * `applyMixTransport`), just for a single track, so both modes share the
- * exact same visual math: `playProgress` is always "seconds elapsed since
- * the left wall / shared timeline", 0–1.
+ * Solo and mix both report `playProgress` as "seconds elapsed since the
+ * left wall / shared timeline", 0–1, so this visual math is shared between
+ * them — even though solo no longer uses `applyMixTransport` to *drive*
+ * playback (see `playTrack`), it derives the same elapsed-seconds value by
+ * reading the element's own `currentTime` instead of writing to it.
  */
 function trackVisualLocalProgress(
   t: JamTrack,
@@ -227,6 +227,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const videoMountRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const videoThumbRefs = useRef<Map<number, HTMLVideoElement>>(new Map());
   const transportStartRef = useRef<number | null>(null);
+  const soloWaitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
   const ownTrackIdsRef = useRef<Set<number>>(new Set());
@@ -498,6 +499,10 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const maxDur = useCallback(() => mixSessionDurationSec(tracks), [tracks]);
 
   const stopAll = useCallback(() => {
+    if (soloWaitTimerRef.current != null) {
+      clearTimeout(soloWaitTimerRef.current);
+      soloWaitTimerRef.current = null;
+    }
     cancelPendingSyncPlays(activeRef.current);
     activeRef.current.forEach((a) => {
       try {
@@ -583,17 +588,23 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       }
     } else if (soloId != null) {
       const solo = tracks.find((t) => t.id === soloId);
-      const start = transportStartRef.current;
       const a = activeRef.current.find((x) => x.dataset.trackId === String(soloId));
-      if (a && solo && start != null) {
-        const elapsed = (performance.now() - start) / 1000;
-        const soloEnd = trackSessionDurationSec(solo);
-        if (elapsed >= soloEnd) {
+      // Solo has nothing else to stay in sync with, so — unlike mix — this
+      // never seeks/rate-nudges the element. It just reads the browser's
+      // own `currentTime` for the progress UI, the same way the (glitch-
+      // free) video viewer sheet does.
+      if (a && solo) {
+        const trimStart = trackTrimStartSec(solo);
+        const trimEnd = trackPlayableEndSec(solo);
+        if (a.ended || (!a.paused && a.currentTime >= trimEnd - 0.03)) {
           stopAll();
           return;
         }
-        next[soloId] = timeline > 0 ? Math.min(1, elapsed / timeline) : 0;
-        applyMixTransport(a, solo, elapsed);
+        if (!a.paused) {
+          const offset = trackSyncOffsetSec(solo);
+          const elapsed = offset + Math.max(0, a.currentTime - trimStart);
+          next[soloId] = timeline > 0 ? Math.min(1, elapsed / timeline) : 0;
+        }
       }
     }
     setPlayProgress(next);
@@ -613,9 +624,12 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     };
   }, [mixPlaying, soloId, syncLoop]);
 
-  /** Solo preview: drive playback with the same elapsed-time transport as
-   * mix (single-track), so it also waits out a positive sync offset before
-   * making sound instead of skipping straight to the clip. */
+  /** Solo preview: play the element natively, exactly like the video
+   * viewer sheet (which never stutters) — no elapsed-time re-seeking or
+   * rate-nudging, since there's no other track to stay aligned with. A
+   * positive sync offset just delays the initial `play()` call so the
+   * preview still waits out the "count-in" instead of jumping straight to
+   * the clip. */
   const playTrack = (t: JamTrack, onFail?: () => void) => {
     const latest = tracksRef.current.find((x) => x.id === t.id) ?? t;
     void loadTrackElement(latest)
@@ -623,7 +637,14 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         activeRef.current.push(el);
         mountPlaybackVideo(latest.id, el);
         transportStartRef.current = performance.now();
-        primeMixTransport([latest], [el]);
+        setElementVolume(el, trackVolume(latest));
+        const start = () => void el.play().catch(() => onFail?.());
+        const offset = trackSyncOffsetSec(latest);
+        if (offset > 0) {
+          soloWaitTimerRef.current = setTimeout(start, offset * 1000);
+        } else {
+          start();
+        }
       })
       .catch(() => onFail?.());
   };
