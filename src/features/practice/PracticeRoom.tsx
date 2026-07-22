@@ -19,7 +19,6 @@ import {
   trackSyncOffsetSec,
   trackTrimStartSec,
   type JamTrack,
-  type MediaKind,
 } from './jamUtils';
 import {
   applyMixTransport,
@@ -31,7 +30,11 @@ import {
   setElementVolume,
 } from './practicePlayback';
 import { WaveformTrimSheet } from './WaveformTrimSheet';
+import { VideoTrackViewerSheet } from './VideoTrackViewerSheet';
 import { RecordPreviewSheet, type RecordPreviewData } from './RecordPreviewSheet';
+import { VideoCropSheet } from '../media/VideoCropSheet';
+import { MediaProgressPanel } from '../../components/MediaProgressPanel';
+import { clampProgress } from '../../utils/mediaProgress';
 import { loadSessionTracks, saveSessionTracks, type StoredPracticeTrack } from '../../utils/practiceStorage';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { useAuth } from '../../state/AuthContext';
@@ -43,6 +46,7 @@ import {
   deletePracticeTrackInDb,
 } from '../../services/practiceTracksService';
 import { isStoragePublicUrl } from '../../services/storageService';
+import { ensureVideoFileType } from '../../utils/videoMediaUtils';
 import './PracticeRoom.css';
 
 interface PendingPos {
@@ -50,7 +54,6 @@ interface PendingPos {
   label: string;
   color: string;
   nick: string;
-  kind: MediaKind;
 }
 
 interface Props {
@@ -59,16 +62,10 @@ interface Props {
   onBack: () => void;
 }
 
-function fileMatchesKind(file: File, kind: MediaKind): boolean {
-  if (kind === 'audio') {
-    return (
-      file.type.startsWith('audio/') ||
-      /\.(mp3|wav|m4a|aac|ogg|flac|webm)$/i.test(file.name)
-    );
-  }
+function isVideoFile(file: File): boolean {
   return (
     file.type.startsWith('video/') ||
-    /\.(mp4|mov|webm|m4v|mkv)$/i.test(file.name)
+    /\.(mp4|mov|webm|m4v|mkv|3gp)$/i.test(file.name)
   );
 }
 
@@ -181,12 +178,15 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const { isOwnPracticeSession, deleteSession, user, activeTeam } = useApp();
   const useDb = isSupabaseConfigured && !!authSession;
   const canDeleteSession = isOwnPracticeSession(session);
-  const [tracksLoading, setTracksLoading] = useState(useDb);
+  const [tracksLoading, setTracksLoading] = useState(() => isSupabaseConfigured);
   const syncedRef = useRef<Map<number, StoredPracticeTrack>>(new Map());
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncInFlightRef = useRef(false);
   const syncPendingRef = useRef(false);
   const runSyncRef = useRef<(() => void) | null>(null);
+  const tracksHydratedRef = useRef(!useDb);
+  /** Only true after the user explicitly removed every track — never on initial load. */
+  const userEmptiedTracksRef = useRef(false);
 
   const [tracks, setTracks] = useState<JamTrack[]>(() =>
     useDb ? [] : loadSessionTracks(session.id).map(fromStoredTrack),
@@ -194,24 +194,33 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const [mixPlaying, setMixPlaying] = useState(false);
   const [soloId, setSoloId] = useState<number | null>(null);
   const [status, setStatus] = useState('');
-  const [transportLabel, setTransportLabel] = useState('새 트랙 올리기');
+  const [transportLabel, setTransportLabel] = useState('새 동영상 올리기');
   const [transportSub, setTransportSub] = useState('+ 눌러 포지션 선택');
 
   const [posOpen, setPosOpen] = useState(false);
-  const [mediaKind, setMediaKind] = useState<MediaKind>('audio');
   const [selPos, setSelPos] = useState<PositionId | null>(null);
 
   const [playProgress, setPlayProgress] = useState<Record<number, number>>({});
   const [trimTrackId, setTrimTrackId] = useState<number | null>(null);
   const [recordPreview, setRecordPreview] = useState<RecordPreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [cropTarget, setCropTarget] = useState<{ file: File; pos: PendingPos } | null>(null);
+  const [videoViewerTrackId, setVideoViewerTrackId] = useState<number | null>(null);
+  const [mediaJob, setMediaJob] = useState<{
+    label: string;
+    progress: number;
+    startedAt: number;
+  } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingRef = useRef<PendingPos | null>(null);
+  const mediaJobStartedRef = useRef(0);
   const activeRef = useRef<HTMLMediaElement[]>([]);
   const rafRef = useRef<number | null>(null);
 
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const videoMountRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const videoThumbRefs = useRef<Map<number, HTMLVideoElement>>(new Map());
   const transportStartRef = useRef<number | null>(null);
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
@@ -225,6 +234,43 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     if (!activeTeam) return user.name;
     return findCurrentMember(activeTeam, user)?.nick ?? user.name;
   }, [activeTeam, user]);
+
+  const reportMediaJob = useCallback((label: string, progress: number) => {
+    if (mediaJobStartedRef.current === 0) mediaJobStartedRef.current = performance.now();
+    setMediaJob({
+      label,
+      progress: clampProgress(progress),
+      startedAt: mediaJobStartedRef.current,
+    });
+  }, []);
+
+  const clearMediaJob = useCallback(() => {
+    mediaJobStartedRef.current = 0;
+    setMediaJob(null);
+  }, []);
+
+  const mountPlaybackVideo = useCallback((trackId: number, el: HTMLMediaElement) => {
+    if (!(el instanceof HTMLVideoElement)) return;
+    const mount = videoMountRefs.current.get(trackId);
+    if (!mount) return;
+    el.className = 'video-tile-playback';
+    el.playsInline = true;
+    mount.replaceChildren(el);
+  }, []);
+
+  const syncVideoThumbs = useCallback(() => {
+    tracksRef.current.forEach((t) => {
+      if (t.kind !== 'video') return;
+      const playback = activeRef.current.find((x) => x.dataset.trackId === String(t.id));
+      const thumb = videoThumbRefs.current.get(t.id);
+      if (!playback || !thumb) return;
+      if (Math.abs(thumb.currentTime - playback.currentTime) > 0.05) {
+        thumb.currentTime = playback.currentTime;
+      }
+      if (!playback.paused && thumb.paused) void thumb.play().catch(() => {});
+      else if (playback.paused && !thumb.paused) thumb.pause();
+    });
+  }, []);
 
   const persistTracks = useCallback(
     (next: JamTrack[]) => {
@@ -243,9 +289,23 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         }
         syncInFlightRef.current = true;
         const payload = tracksRef.current.map(toStoredTrack);
-        void syncPracticeTracksToDb(session, payload, syncedRef.current)
+        if (
+          payload.length === 0 &&
+          syncedRef.current.size > 0 &&
+          !userEmptiedTracksRef.current
+        ) {
+          syncInFlightRef.current = false;
+          return;
+        }
+        void syncPracticeTracksToDb(session, payload, syncedRef.current, {
+          onUploadProgress: (update) => {
+            reportMediaJob(update.label ?? '클라우드에 저장 중…', update.progress);
+          },
+          allowEmpty: userEmptiedTracksRef.current,
+        })
           .then((map) => {
             syncedRef.current = map;
+            if (map.size === 0) userEmptiedTracksRef.current = false;
             setTracks((prev) =>
               prev.map((t) => {
                 const saved = map.get(t.id);
@@ -287,6 +347,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
           })
           .finally(() => {
             syncInFlightRef.current = false;
+            if (!syncPendingRef.current) clearMediaJob();
             if (syncPendingRef.current) {
               syncPendingRef.current = false;
               runSync();
@@ -298,12 +359,20 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
       syncTimerRef.current = setTimeout(runSync, 400);
     },
-    [session, useDb, markOwnTrack],
+    [session, useDb, markOwnTrack, reportMediaJob, clearMediaJob],
   );
 
   useEffect(() => {
-    if (!useDb) return;
+    if (!useDb) {
+      tracksHydratedRef.current = true;
+      return;
+    }
     let cancelled = false;
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = null;
+    }
+    tracksHydratedRef.current = false;
     setTracksLoading(true);
     void fetchPracticeTracksForSession(session.id)
       .then((stored) => {
@@ -313,14 +382,21 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
           if (uid && t.authorUserId === uid) markOwnTrack(t.id);
         });
         syncedRef.current = new Map(stored.map((t) => [t.id, t]));
+        userEmptiedTracksRef.current = false;
         setTracks(stored.map(fromStoredTrack));
+        if (stored.some((t) => t.mediaUrl.startsWith('blob:'))) {
+          setStatus('일부 트랙 파일이 저장되지 않았어요. 다시 올려주세요.');
+        }
       })
       .catch((err) => {
         console.error('[BandCrew] practice tracks load failed', err);
         setStatus('연습 트랙을 불러오지 못했어요.');
       })
       .finally(() => {
-        if (!cancelled) setTracksLoading(false);
+        if (!cancelled) {
+          tracksHydratedRef.current = true;
+          setTracksLoading(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -342,7 +418,19 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   );
 
   useEffect(() => {
-    if (tracksLoading) return;
+    const flushPendingSync = () => {
+      if (syncTimerRef.current) {
+        clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = null;
+        runSyncRef.current?.();
+      }
+    };
+    window.addEventListener('pagehide', flushPendingSync);
+    return () => window.removeEventListener('pagehide', flushPendingSync);
+  }, []);
+
+  useEffect(() => {
+    if (tracksLoading || !tracksHydratedRef.current) return;
     persistTracks(tracks);
   }, [tracks, persistTracks, tracksLoading]);
 
@@ -353,8 +441,19 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     activeRef.current.forEach((a) => {
       try {
         a.pause();
+        if (a.parentElement?.classList.contains('video-tile-mount')) {
+          a.parentElement.replaceChildren();
+        }
         a.removeAttribute('src');
         a.load();
+      } catch {
+        /* ignore */
+      }
+    });
+    videoThumbRefs.current.forEach((thumb) => {
+      try {
+        thumb.pause();
+        thumb.currentTime = 0;
       } catch {
         /* ignore */
       }
@@ -431,7 +530,8 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     }
     setPlayProgress(next);
     paintWaveforms(next);
-  }, [maxDur, mixPlaying, soloId, tracks, paintWaveforms, stopAll]);
+    syncVideoThumbs();
+  }, [maxDur, mixPlaying, soloId, tracks, paintWaveforms, stopAll, syncVideoThumbs]);
 
   useEffect(() => {
     if (!mixPlaying && soloId == null) return;
@@ -453,6 +553,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     void loadTrackElement(latest)
       .then((el) => {
         activeRef.current.push(el);
+        mountPlaybackVideo(latest.id, el);
         transportStartRef.current = performance.now();
         primeMixTransport([latest], [el]);
       })
@@ -460,36 +561,26 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   };
 
   const resetTransport = () => {
-    setTransportLabel('새 트랙 올리기');
+    setTransportLabel('새 동영상 올리기');
     setTransportSub('+ 눌러 포지션 선택');
   };
 
-  const handleFilePick = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    const pos = pendingRef.current;
-    pendingRef.current = null;
-    if (!file || !pos) return;
-
-    if (!fileMatchesKind(file, pos.kind)) {
-      setStatus(
-        pos.kind === 'video'
-          ? '동영상 파일을 선택해 주세요.'
-          : '오디오 파일을 선택해 주세요.',
-      );
-      return;
-    }
-
+  const processMediaFile = async (blob: Blob, pos: PendingPos) => {
     setPreviewLoading(true);
+    mediaJobStartedRef.current = performance.now();
+    reportMediaJob('파일 분석 중…', 0);
     setTransportLabel('파일 확인 준비 중…');
     setTransportSub('잠시만 기다려 주세요');
 
-    const blobUrl = URL.createObjectURL(file);
+    const blobUrl = URL.createObjectURL(blob);
     try {
-      const analyzed = await analyzeMedia(blobUrl);
+      const analyzed = await analyzeMedia(blobUrl, (update) => {
+        reportMediaJob(update.label ?? '파일 분석 중…', update.progress);
+      });
+      clearMediaJob();
       setRecordPreview({
         blobUrl,
-        kind: pos.kind,
+        kind: 'video',
         positionId: pos.id,
         positionLabel: pos.label,
         name: pos.nick || `트랙 ${tracks.length + 1}`,
@@ -501,12 +592,49 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       setTransportSub('미리 듣고 올릴지 선택하세요');
       setStatus('');
     } catch {
+      clearMediaJob();
       URL.revokeObjectURL(blobUrl);
       resetTransport();
       setStatus('파일을 불러오지 못했어요. 다른 파일로 다시 시도해 주세요.');
     } finally {
       setPreviewLoading(false);
     }
+  };
+
+  const handleFilePick = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const pos = pendingRef.current;
+    pendingRef.current = null;
+    if (!file || !pos) return;
+
+    if (!isVideoFile(file)) {
+      setStatus('동영상 파일을 선택해 주세요.');
+      return;
+    }
+
+    setCropTarget({ file: ensureVideoFileType(file), pos });
+    setTransportLabel('영상 프레임 맞추기');
+    setTransportSub('정사각형으로 잘라서 올려요');
+  };
+
+  const handleCropConfirm = (cropped: Blob) => {
+    const target = cropTarget;
+    setCropTarget(null);
+    if (!target) return;
+    void processMediaFile(cropped, target.pos);
+  };
+
+  const handleCropSkip = (blob: Blob) => {
+    const target = cropTarget;
+    setCropTarget(null);
+    if (!target) return;
+    void processMediaFile(blob, target.pos);
+  };
+
+  const handleCropClose = () => {
+    setCropTarget(null);
+    resetTransport();
   };
 
   const confirmRecordPreview = () => {
@@ -540,7 +668,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   };
 
   const openPos = () => {
-    if (recordPreview || previewLoading) return;
+    if (recordPreview || previewLoading || cropTarget) return;
     if (mixPlaying) stopAll();
     if (soloId != null) stopAll();
     setPosOpen(true);
@@ -555,12 +683,11 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       label: p.label,
       color: p.color,
       nick: getUploaderNick(),
-      kind: mediaKind,
     };
     setPosOpen(false);
     const input = fileInputRef.current;
     if (!input) return;
-    input.accept = mediaKind === 'video' ? 'video/*' : 'audio/*';
+    input.accept = 'video/*';
     input.click();
   };
 
@@ -606,7 +733,11 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
 
     revokeBlobUrl(t.blobUrl);
     ownTrackIdsRef.current.delete(id);
-    setTracks((prev) => prev.filter((x) => x.id !== id));
+    setTracks((prev) => {
+      const next = prev.filter((x) => x.id !== id);
+      if (next.length === 0) userEmptiedTracksRef.current = true;
+      return next;
+    });
   };
 
   const toggleSolo = (id: number) => {
@@ -652,6 +783,12 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     });
   };
 
+  const openVideoViewer = (trackId: number) => {
+    resumePracticeAudio();
+    stopAll();
+    setVideoViewerTrackId(trackId);
+  };
+
   const toggleMix = () => {
     resumePracticeAudio();
     if (soloId != null) stopAll();
@@ -671,8 +808,9 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         const syncedList = list.map((t) => latest.find((x) => x.id === t.id) ?? t);
         setStatus('');
         setMixPlaying(true);
-        elements.forEach((el) => {
+        elements.forEach((el, index) => {
           activeRef.current.push(el);
+          mountPlaybackVideo(syncedList[index].id, el);
         });
         transportStartRef.current = performance.now();
         primeMixTransport(syncedList, elements);
@@ -683,6 +821,8 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   };
 
   const videoTracks = tracks.filter((t) => t.kind === 'video');
+  const videoViewerTrack =
+    videoViewerTrackId != null ? tracks.find((t) => t.id === videoViewerTrackId) : undefined;
   const timeline = maxDur();
   const trimTrack = trimTrackId != null ? tracks.find((t) => t.id === trimTrackId) : undefined;
 
@@ -742,8 +882,18 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
           +
         </button>
         <div className="transport-info">
-          <div className="transport-label">{transportLabel}</div>
-          <div className="transport-sub">{transportSub}</div>
+          {mediaJob ? (
+            <MediaProgressPanel
+              label={mediaJob.label}
+              progress={mediaJob.progress}
+              startedAt={mediaJob.startedAt}
+            />
+          ) : (
+            <>
+              <div className="transport-label">{transportLabel}</div>
+              <div className="transport-sub">{transportSub}</div>
+            </>
+          )}
         </div>
         <button
           type="button"
@@ -758,18 +908,39 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       {videoTracks.length > 0 && (
         <div className="video-stage show">
           {videoTracks.map((t) => (
-            <div key={t.id} className={`video-tile ${trackVolume(t) === 0 ? 'is-silent' : ''}`}>
-              <video src={t.blobUrl} muted playsInline preload="metadata" />
-              <span>
+            <button
+              key={t.id}
+              type="button"
+              className={`video-tile ${trackVolume(t) === 0 ? 'is-silent' : ''}`}
+              onClick={() => openVideoViewer(t.id)}
+              aria-label={`${t.positionLabel} ${t.name} 동영상 보기`}
+            >
+              <video
+                key={t.blobUrl}
+                className="video-tile-poster"
+                src={t.blobUrl}
+                muted
+                playsInline
+                preload="auto"
+                aria-hidden
+              />
+              <div
+                className="video-tile-mount"
+                ref={(el) => {
+                  if (el) videoMountRefs.current.set(t.id, el);
+                  else videoMountRefs.current.delete(t.id);
+                }}
+              />
+              <span className="video-tile-label">
                 {t.positionLabel} · {t.name}
               </span>
-            </div>
+            </button>
           ))}
         </div>
       )}
 
       {tracks.length === 0 && (
-        <div className="empty-hint">+ 눌러 첫 트랙 파일을 올리세요.</div>
+        <div className="empty-hint">+ 눌러 첫 동영상 트랙을 올리세요.</div>
       )}
 
       {tracks.map((t) => {
@@ -786,7 +957,17 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
           >
             {t.kind === 'video' ? (
               <div className="track-thumb">
-                <video src={t.blobUrl} muted playsInline preload="metadata" />
+                <video
+                  key={t.blobUrl}
+                  ref={(el) => {
+                    if (el) videoThumbRefs.current.set(t.id, el);
+                    else videoThumbRefs.current.delete(t.id);
+                  }}
+                  src={t.blobUrl}
+                  muted
+                  playsInline
+                  preload="auto"
+                />
                 <span className="vid-badge">VID</span>
               </div>
             ) : (
@@ -918,6 +1099,25 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
 
       {status && <p className="status-line">{status}</p>}
 
+      {cropTarget ? (
+        <VideoCropSheet
+          file={cropTarget.file}
+          fileName={cropTarget.file.name}
+          description="트랙에 올라갈 정사각형 프레임에 꽉 차도록 맞춰 주세요. 드래그하고 확대할 수 있어요."
+          onConfirm={handleCropConfirm}
+          onClose={handleCropClose}
+          onSkip={handleCropSkip}
+          compressProfile="practice"
+        />
+      ) : null}
+
+      {videoViewerTrack ? (
+        <VideoTrackViewerSheet
+          track={videoViewerTrack}
+          onClose={() => setVideoViewerTrackId(null)}
+        />
+      ) : null}
+
       {recordPreview ? (
         <RecordPreviewSheet
           preview={recordPreview}
@@ -939,26 +1139,10 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       {posOpen && (
         <div className="pos-overlay open" onClick={() => setPosOpen(false)}>
           <div className="pos-sheet" onClick={(e) => e.stopPropagation()}>
-            <h2>포지션 · 미디어</h2>
+            <h2>포지션 · 동영상</h2>
             <p className="pos-nick-hint">
-              기기에 녹음한 파일을 올릴 수 있어요. 트랙에는 {getUploaderNick()} 으로 표시돼요.
+              기기에 찍은 동영상을 올릴 수 있어요. 트랙에는 {getUploaderNick()} 으로 표시돼요.
             </p>
-            <div className="media-mode">
-              <button
-                type="button"
-                className={mediaKind === 'audio' ? 'on' : ''}
-                onClick={() => setMediaKind('audio')}
-              >
-                오디오
-              </button>
-              <button
-                type="button"
-                className={mediaKind === 'video' ? 'on' : ''}
-                onClick={() => setMediaKind('video')}
-              >
-                동영상
-              </button>
-            </div>
             <div className="pos-grid">
               {POSITIONS.map((p) => (
                 <button
@@ -977,7 +1161,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                 취소
               </button>
               <button type="button" className="btn btn-primary" disabled={!selPos} onClick={confirmPos}>
-                {mediaKind === 'video' ? '동영상 선택' : '오디오 선택'}
+                동영상 선택
               </button>
             </div>
           </div>

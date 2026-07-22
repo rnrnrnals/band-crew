@@ -28,4 +28,5 @@ export {
   MAX_VIDEO_DURATION_SEC,
   formatMaxSize,
   type MediaKind,
+  type VideoCompressProfile,
 } from './mediaCompress';

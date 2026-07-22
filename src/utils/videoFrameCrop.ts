@@ -4,6 +4,9 @@ import { clamp } from './squareImageCrop';
 export const POST_VIDEO_FRAME_RATIO = 1;
 export const POST_VIDEO_OUTPUT_WIDTH = 900;
 export const POST_VIDEO_OUTPUT_HEIGHT = 900;
+/** Practice tracks only need audible audio — video can be small/blurry. */
+export const PRACTICE_VIDEO_OUTPUT_WIDTH = 480;
+export const PRACTICE_VIDEO_OUTPUT_HEIGHT = 480;
 
 export interface VideoFrameCropParams {
   viewportWidth: number;

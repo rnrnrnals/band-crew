@@ -141,31 +141,52 @@
 
 .video-tile {
   position: relative;
+  display: block;
+  width: 100%;
+  border: none;
+  padding: 0;
   border-radius: 8px;
   overflow: hidden;
-  aspect-ratio: 4/3;
+  aspect-ratio: 1;
   background: #000;
+  cursor: pointer;
+  text-align: left;
 }
 
 .video-tile.is-silent {
   opacity: 0.35;
 }
 
-.video-tile video {
+.video-tile-poster,
+.video-tile-mount,
+.video-tile-mount video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  pointer-events: none;
 }
 
-.video-tile span {
+.video-tile-mount {
+  z-index: 1;
+}
+
+.video-tile-poster {
+  z-index: 0;
+}
+
+.video-tile-label {
   position: absolute;
   left: 4px;
   bottom: 4px;
+  z-index: 2;
   font-size: 9px;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
   padding: 2px 5px;
   border-radius: 4px;
+  pointer-events: none;
 }
 
 .empty-hint {

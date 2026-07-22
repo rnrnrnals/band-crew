@@ -1,0 +1,42 @@
+.media-progress {
+  width: 100%;
+  min-width: 0;
+}
+
+.media-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.media-progress-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-progress-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.media-progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+
+.media-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), #7c6cff);
+  transition: width 0.25s ease;
+}
