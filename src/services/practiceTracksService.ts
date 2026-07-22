@@ -5,6 +5,7 @@ import { requireSupabase } from '../lib/supabase';
 import type { PracticeSessionMeta } from '../types';
 import type { StoredPracticeTrack } from '../utils/practiceStorage';
 import { ensurePracticeSessionInDb } from './practiceService';
+import type { MediaProgressReporter } from '../utils/mediaProgress';
 import {
   dataUrlToBlob,
   deleteStorageUrls,
@@ -53,19 +54,39 @@ function mapRow(row: DbPracticeTrackRow): StoredPracticeTrack {
   };
 }
 
+export interface SyncPracticeTracksOptions {
+  onUploadProgress?: MediaProgressReporter;
+  /** Set when the user intentionally removed every track locally. */
+  allowEmpty?: boolean;
+}
+
 async function publishTrackMedia(
   teamId: string,
   sessionId: string,
   mediaUrl: string,
+  onUploadProgress?: MediaProgressReporter,
 ): Promise<string> {
   if (isStoragePublicUrl(mediaUrl)) return mediaUrl;
+  const uploadWithProgress = (blob: Blob) =>
+    uploadMediaBlob('practice', `${teamId}/${sessionId}`, blob, undefined, (loaded, total) => {
+      onUploadProgress?.({
+        progress: total > 0 ? loaded / total : 0,
+        label: '클라우드에 저장 중…',
+      });
+    });
   if (mediaUrl.startsWith('blob:')) {
+    onUploadProgress?.({ progress: 0, label: '업로드 준비 중…' });
     const blob = await fetch(mediaUrl).then((r) => r.blob());
-    return uploadMediaBlob('practice', `${teamId}/${sessionId}`, blob);
+    const url = await uploadWithProgress(blob);
+    onUploadProgress?.({ progress: 1, label: '저장 완료' });
+    return url;
   }
   if (mediaUrl.startsWith('data:')) {
+    onUploadProgress?.({ progress: 0, label: '업로드 준비 중…' });
     const blob = await dataUrlToBlob(mediaUrl);
-    return uploadMediaBlob('practice', `${teamId}/${sessionId}`, blob);
+    const url = await uploadWithProgress(blob);
+    onUploadProgress?.({ progress: 1, label: '저장 완료' });
+    return url;
   }
   return mediaUrl;
 }
@@ -73,8 +94,9 @@ async function publishTrackMedia(
 function needsTrackMediaUpload(track: StoredPracticeTrack, prev?: StoredPracticeTrack): boolean {
   if (!prev) return true;
   if (isStoragePublicUrl(track.mediaUrl)) return prev.mediaUrl !== track.mediaUrl;
-  if (isStoragePublicUrl(prev.mediaUrl)) return false;
-  return prev.mediaUrl !== track.mediaUrl;
+  // Local blob/data must upload until we have a stored public URL.
+  if (!isStoragePublicUrl(prev.mediaUrl)) return prev.mediaUrl !== track.mediaUrl;
+  return false;
 }
 
 function isMissingColumnError(error: { code?: string; message?: string } | null): boolean {
@@ -145,6 +167,9 @@ async function upsertTrackRow(
   mediaUrl: string,
   sortOrder: number,
 ): Promise<StoredPracticeTrack> {
+  if (mediaUrl.startsWith('blob:') || mediaUrl.startsWith('data:')) {
+    throw new Error('미디어 업로드가 끝나지 않았어요.');
+  }
   const supabase = requireSupabase();
   const candidates = buildTrackRows(sessionId, track, mediaUrl, sortOrder, true);
   let lastError: { code?: string; message?: string } | null = null;
@@ -201,8 +226,9 @@ export async function upsertPracticeTrackInDb(
   teamId: string,
   track: StoredPracticeTrack,
   sortOrder: number,
+  onUploadProgress?: MediaProgressReporter,
 ): Promise<StoredPracticeTrack> {
-  const mediaUrl = await publishTrackMedia(teamId, sessionId, track.mediaUrl);
+  const mediaUrl = await publishTrackMedia(teamId, sessionId, track.mediaUrl, onUploadProgress);
   return upsertTrackRow(sessionId, track, mediaUrl, sortOrder);
 }
 
@@ -297,6 +323,7 @@ export async function syncPracticeTracksToDb(
   sessionMeta: PracticeSessionMeta,
   tracks: StoredPracticeTrack[],
   previous: Map<number, StoredPracticeTrack>,
+  options?: SyncPracticeTracksOptions,
 ): Promise<Map<number, StoredPracticeTrack>> {
   await ensurePracticeSessionInDb(sessionMeta);
 
@@ -304,6 +331,10 @@ export async function syncPracticeTracksToDb(
   const teamId = sessionMeta.teamId;
   const nextMap = new Map<number, StoredPracticeTrack>();
   const nextKeys = new Set(tracks.map((t) => t.id));
+
+  if (tracks.length === 0 && previous.size > 0 && !options?.allowEmpty) {
+    return new Map(previous);
+  }
 
   for (const [trackKey, oldTrack] of previous) {
     if (!nextKeys.has(trackKey)) {
@@ -323,7 +354,13 @@ export async function syncPracticeTracksToDb(
       (prev.syncOffsetSec ?? 0) !== (track.syncOffsetSec ?? 0);
 
     if (uploadMedia) {
-      const saved = await upsertPracticeTrackInDb(sessionId, teamId, track, i);
+      const saved = await upsertPracticeTrackInDb(
+        sessionId,
+        teamId,
+        track,
+        i,
+        options?.onUploadProgress,
+      );
       nextMap.set(saved.id, saved);
     } else if (metaChanged) {
       await updatePracticeTrackMetaInDb(sessionId, track.id, {

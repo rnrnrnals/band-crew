@@ -141,31 +141,80 @@
 
 .video-tile {
   position: relative;
+  display: block;
+  width: 100%;
+  border: none;
+  padding: 0;
   border-radius: 8px;
   overflow: hidden;
-  aspect-ratio: 4/3;
+  aspect-ratio: 1;
   background: #000;
+  cursor: pointer;
+  text-align: left;
 }
 
 .video-tile.is-silent {
   opacity: 0.35;
 }
 
-.video-tile video {
+.video-tile.is-broken {
+  cursor: pointer;
+}
+
+.video-tile-broken {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  padding: 8px;
+  color: #fff;
+}
+
+.video-tile-broken span:first-child {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.video-tile-broken-hint {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.video-tile-poster,
+.video-tile-mount,
+.video-tile-mount video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  pointer-events: none;
 }
 
-.video-tile span {
+.video-tile-mount {
+  z-index: 1;
+}
+
+.video-tile-poster {
+  z-index: 0;
+}
+
+.video-tile-label {
   position: absolute;
   left: 4px;
   bottom: 4px;
+  z-index: 2;
   font-size: 9px;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
   padding: 2px 5px;
   border-radius: 4px;
+  pointer-events: none;
 }
 
 .empty-hint {
@@ -237,6 +286,19 @@
   color: #fff;
   padding: 1px 4px;
   border-radius: 3px;
+}
+
+.vid-badge.broken {
+  position: static;
+  display: block;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+  font-size: 9px;
+  text-align: center;
 }
 
 .track-body {

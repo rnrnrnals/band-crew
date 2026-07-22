@@ -110,6 +110,10 @@
   color: var(--red);
 }
 
+.video-crop-progress {
+  margin-top: 12px;
+}
+
 .video-crop-actions {
   display: flex;
   gap: 8px;

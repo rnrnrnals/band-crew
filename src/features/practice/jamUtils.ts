@@ -95,11 +95,17 @@ export const POSITIONS = (Object.keys(POSITION_LABELS) as PositionId[]).map((id)
   art: POS_ART[id],
 }));
 
-export async function analyzeMedia(blobUrl: string): Promise<{ peaks: number[]; duration: number }> {
+export async function analyzeMedia(
+  blobUrl: string,
+  onProgress?: (update: { progress: number; label?: string }) => void,
+): Promise<{ peaks: number[]; duration: number }> {
   try {
+    onProgress?.({ progress: 0.05, label: '오디오 분석 중…' });
     const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     const res = await fetch(blobUrl);
+    onProgress?.({ progress: 0.25, label: '오디오 분석 중…' });
     const raw = await res.arrayBuffer();
+    onProgress?.({ progress: 0.45, label: '파형 만드는 중…' });
     const audioBuffer = await ctx.decodeAudioData(raw.slice(0));
     const data = audioBuffer.getChannelData(0);
     const peaks: number[] = [];
@@ -116,9 +122,12 @@ export async function analyzeMedia(blobUrl: string): Promise<{ peaks: number[]; 
     }
     const max = Math.max(...peaks, 0.001);
     await ctx.close();
+    onProgress?.({ progress: 1, label: '완료' });
     return { peaks: peaks.map((p) => p / max), duration: audioBuffer.duration };
   } catch {
+    onProgress?.({ progress: 0.35, label: '영상 정보 확인 중…' });
     const duration = await getMediaDuration(blobUrl);
+    onProgress?.({ progress: 1, label: '완료' });
     return { peaks: Array(WAVE_BARS).fill(0.22), duration: duration || 1 };
   }
 }

@@ -4,9 +4,24 @@ import {
   trackSessionDurationSec,
   trackTrimStartSec,
 } from './jamUtils';
+import { applyMediaElementUrl, isRemoteMediaUrl } from '../../utils/videoMediaUtils';
 
 let practiceAudioCtx: AudioContext | null = null;
 const elementGainNodes = new WeakMap<HTMLMediaElement, GainNode>();
+
+/**
+ * Cross-origin (Supabase-hosted) media isn't loaded with `crossorigin`
+ * (see `applyMediaElementUrl`), so routing it through
+ * `createMediaElementSource` would permanently redirect its audio into a
+ * Web Audio graph that outputs silence for tainted sources — with no way
+ * back to native playback. Only same-origin (`blob:`) elements get the
+ * Web Audio gain path (needed for the iOS `element.volume` workaround);
+ * remote elements use native `.volume`/`.muted` instead.
+ */
+function usesWebAudioGain(el: HTMLMediaElement): boolean {
+  const src = el.currentSrc || el.src;
+  return !!src && !isRemoteMediaUrl(src);
+}
 
 function getPracticeAudioCtx(): AudioContext {
   if (!practiceAudioCtx) {
@@ -34,7 +49,8 @@ export function resumePracticeAudio(): void {
   if (ctx.state === 'suspended') void ctx.resume();
 }
 
-function ensureGainNode(el: HTMLMediaElement): GainNode {
+function ensureGainNode(el: HTMLMediaElement): GainNode | null {
+  if (!usesWebAudioGain(el)) return null;
   let gain = elementGainNodes.get(el);
   if (gain) return gain;
 
@@ -49,9 +65,15 @@ function ensureGainNode(el: HTMLMediaElement): GainNode {
 
 function setGainValue(el: HTMLMediaElement, volume: number): void {
   const vol = Math.max(0, Math.min(1, volume));
+  const gain = ensureGainNode(el);
+  if (!gain) {
+    // Remote source: no Web Audio routing, use native volume/mute directly.
+    el.muted = vol === 0;
+    el.volume = vol;
+    return;
+  }
   const ctx = getPracticeAudioCtx();
   if (ctx.state === 'suspended') void ctx.resume();
-  const gain = ensureGainNode(el);
   const now = ctx.currentTime;
   gain.gain.cancelScheduledValues(now);
   gain.gain.setValueAtTime(vol, now);
@@ -89,14 +111,14 @@ function waitCanPlay(el: HTMLMediaElement): Promise<void> {
 
 export function createTrackElement(track: JamTrack): HTMLMediaElement {
   const el = document.createElement(track.kind === 'video' ? 'video' : 'audio');
-  el.src = track.blobUrl;
   el.preload = 'auto';
-  ensureGainNode(el);
   el.dataset.trackId = String(track.id);
   if (track.kind === 'video') {
     (el as HTMLVideoElement).playsInline = true;
     el.setAttribute('playsinline', '');
   }
+  applyMediaElementUrl(el, track.blobUrl);
+  ensureGainNode(el);
   return el;
 }
 

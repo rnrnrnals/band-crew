@@ -13,7 +13,7 @@ import {
 } from '../utils/fileMedia';
 import { ensurePublishedMedia } from '../utils/mediaUpload';
 import { uploadPosterForVideo } from '../services/storageService';
-import { videoFileExtension } from '../utils/videoMediaUtils';
+import { ensureVideoFileType, videoFileExtension } from '../utils/videoMediaUtils';
 import { VideoTrimSheet } from '../features/media/VideoTrimSheet';
 import { VideoCropSheet } from '../features/media/VideoCropSheet';
 import './UploadPage.css';
@@ -78,7 +78,8 @@ export function UploadPage() {
       clearAttachment();
       return;
     }
-    const validationError = validateFile(file, mediaType);
+    const normalized = mediaType === 'video' ? ensureVideoFileType(file) : file;
+    const validationError = validateFile(normalized, mediaType);
     if (validationError) {
       setError(validationError);
       clearAttachment();
@@ -86,18 +87,18 @@ export function UploadPage() {
     }
 
     if (mediaType === 'video') {
-      const objectUrl = URL.createObjectURL(file);
+      const objectUrl = URL.createObjectURL(normalized);
       const duration = await getVideoDuration(objectUrl);
       URL.revokeObjectURL(objectUrl);
       if (videoNeedsTrim(duration)) {
-        setTrimVideo({ file, name: file.name });
+        setTrimVideo({ file: normalized, name: normalized.name });
         return;
       }
-      openVideoCrop(file);
+      openVideoCrop(normalized);
       return;
     }
 
-    applyVideoFile(file);
+    applyVideoFile(normalized);
   };
 
   const handleTrimConfirm = (trimmed: Blob) => {
@@ -121,6 +122,17 @@ export function UploadPage() {
   };
 
   const handleCropClose = () => {
+    setCropVideo(null);
+  };
+
+  const handleCropSkip = (blob: Blob) => {
+    if (!cropVideo) return;
+    const base = cropVideo.name.replace(/\.[^.]+$/, '') || 'video';
+    const ext = videoFileExtension(blob.type || 'video/mp4');
+    const nextFile = new File([blob], `${base}.${ext}`, {
+      type: blob.type || `video/${ext}`,
+    });
+    applyVideoFile(nextFile, blob);
     setCropVideo(null);
   };
 
@@ -272,6 +284,7 @@ export function UploadPage() {
           fileName={cropVideo.name}
           onClose={handleCropClose}
           onConfirm={handleCropConfirm}
+          onSkip={handleCropSkip}
         />
       )}
     </div>

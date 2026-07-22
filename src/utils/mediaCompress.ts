@@ -8,9 +8,13 @@ import { canvasToImageBlob, getPreferredImageMime } from './imageOutput';
 import {
   POST_VIDEO_OUTPUT_HEIGHT,
   POST_VIDEO_OUTPUT_WIDTH,
+  PRACTICE_VIDEO_OUTPUT_HEIGHT,
+  PRACTICE_VIDEO_OUTPUT_WIDTH,
   cropRectFromPan,
   type VideoFrameCropParams,
 } from './videoFrameCrop';
+import type { MediaProgressReporter } from './mediaProgress';
+import { clampProgress } from './mediaProgress';
 
 export type MediaKind = 'image' | 'video' | 'audio';
 
@@ -167,13 +171,49 @@ function createVideoRecordSession(
 /** Guaranteed floor for audio bitrate so re-encoding a video never starves
  * its audio quality — video gets whatever's left of the byte budget. */
 const TARGET_AUDIO_BITRATE = 128_000;
-const MIN_VIDEO_BITRATE = 150_000;
+
+export type VideoCompressProfile = 'feed' | 'practice';
+
+interface VideoCompressSettings {
+  maxBytes: number;
+  outputWidth: number;
+  outputHeight: number;
+  minVideoBitrate: number;
+  maxVideoBitrate: number;
+  audioBitrate: number;
+}
+
+function videoCompressSettings(profile: VideoCompressProfile): VideoCompressSettings {
+  if (profile === 'practice') {
+    return {
+      maxBytes: CHAT_MAX_VIDEO_BYTES,
+      outputWidth: PRACTICE_VIDEO_OUTPUT_WIDTH,
+      outputHeight: PRACTICE_VIDEO_OUTPUT_HEIGHT,
+      minVideoBitrate: 80_000,
+      maxVideoBitrate: 500_000,
+      audioBitrate: TARGET_AUDIO_BITRATE,
+    };
+  }
+  return {
+    maxBytes: CHAT_MAX_VIDEO_BYTES,
+    outputWidth: POST_VIDEO_OUTPUT_WIDTH,
+    outputHeight: POST_VIDEO_OUTPUT_HEIGHT,
+    minVideoBitrate: 150_000,
+    maxVideoBitrate: 2_000_000,
+    audioBitrate: TARGET_AUDIO_BITRATE,
+  };
+}
 
 /** Split a total byte budget into a video bitrate, reserving room for audio
  * first so compression only shrinks the picture, not the sound. */
-function computeVideoBitrate(maxBytes: number, durationSec: number, budgetFactor = 0.72): number {
-  const totalBps = (maxBytes * 8 * budgetFactor) / Math.max(0.5, durationSec);
-  return Math.max(MIN_VIDEO_BITRATE, Math.floor(totalBps - TARGET_AUDIO_BITRATE));
+function computeVideoBitrate(
+  durationSec: number,
+  settings: VideoCompressSettings,
+  budgetFactor = 0.72,
+): number {
+  const totalBps = (settings.maxBytes * 8 * budgetFactor) / Math.max(0.5, durationSec);
+  const videoBps = Math.floor(totalBps - settings.audioBitrate);
+  return Math.max(settings.minVideoBitrate, Math.min(settings.maxVideoBitrate, videoBps));
 }
 
 function recordStreamToBlob(
@@ -183,6 +223,8 @@ function recordStreamToBlob(
   stopWhen: () => boolean,
   maxMs: number,
   audioBitsPerSecond: number = TARGET_AUDIO_BITRATE,
+  onProgress?: (progress: number) => void,
+  getProgress?: () => number,
 ): Promise<Blob> {
   const recorder = new MediaRecorder(stream, {
     mimeType,
@@ -200,6 +242,9 @@ function recordStreamToBlob(
 
     recorder.start(250);
     const tick = () => {
+      if (getProgress && onProgress) {
+        onProgress(clampProgress(getProgress()));
+      }
       if (stopWhen()) {
         if (recorder.state !== 'inactive') recorder.stop();
         return;
@@ -351,10 +396,10 @@ async function recordVideoSegment(
   endSec: number,
   mimeType: string,
   clipLen: number,
-  maxBytes: number,
+  settings: VideoCompressSettings,
   drawFrame?: (ctx: CanvasRenderingContext2D, el: HTMLVideoElement) => void,
 ): Promise<Blob> {
-  const videoBitsPerSecond = computeVideoBitrate(maxBytes, clipLen);
+  const videoBitsPerSecond = computeVideoBitrate(clipLen, settings);
   video.muted = false;
   video.volume = 1;
 
@@ -381,6 +426,7 @@ async function recordVideoSegment(
       videoBitsPerSecond,
       () => video.currentTime >= endSec || video.ended,
       Math.ceil(clipLen * 1000) + 2500,
+      settings.audioBitrate,
     );
     video.pause();
     return blob;
@@ -420,7 +466,8 @@ export async function trimVideoBlob(
     if (!mimeType) throw new Error('이 브라우저에서는 영상 자르기를 지원하지 않아요.');
 
     await seekVideo(video, safeStart);
-    const trimmed = await recordVideoSegment(video, safeEnd, mimeType, clipLen, maxBytes);
+    const settings = { ...videoCompressSettings('feed'), maxBytes };
+    const trimmed = await recordVideoSegment(video, safeEnd, mimeType, clipLen, settings);
     if (trimmed.size <= maxBytes) return trimmed;
     return compressVideoBlob(trimmed, maxBytes);
   } finally {
@@ -436,8 +483,10 @@ export function videoNeedsTrim(durationSec: number | undefined): boolean {
 export async function cropVideoToFrameBlob(
   blob: Blob,
   crop: VideoFrameCropParams,
-  maxBytes = CHAT_MAX_VIDEO_BYTES,
+  profile: VideoCompressProfile = 'feed',
+  onProgress?: MediaProgressReporter,
 ): Promise<Blob> {
+  const settings = videoCompressSettings(profile);
   const url = URL.createObjectURL(blob);
   const video = document.createElement('video');
   video.playsInline = true;
@@ -447,6 +496,7 @@ export async function cropVideoToFrameBlob(
   video.src = url;
 
   try {
+    onProgress?.({ progress: 0, label: '영상 정보 확인 중…' });
     await waitEvent(video, 'loadedmetadata');
     if (!Number.isFinite(video.duration) || video.duration <= 0) {
       throw new Error('영상 정보를 확인할 수 없어요.');
@@ -462,18 +512,20 @@ export async function cropVideoToFrameBlob(
       crop.offsetY,
     );
 
-    const outW = POST_VIDEO_OUTPUT_WIDTH;
-    const outH = POST_VIDEO_OUTPUT_HEIGHT;
+    const outW = settings.outputWidth;
+    const outH = settings.outputHeight;
     const mimeType = pickVideoMime();
     if (!mimeType) throw new Error('이 브라우저에서는 영상 자르기를 지원하지 않아요.');
 
-    const videoBitsPerSecond = computeVideoBitrate(maxBytes, video.duration);
+    const videoBitsPerSecond = computeVideoBitrate(video.duration, settings);
+    const duration = video.duration;
 
     const session = createVideoRecordSession(video, outW, outH, (ctx) => {
       ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outW, outH);
     });
 
     try {
+      onProgress?.({ progress: 0.02, label: '영상 압축 중…' });
       video.currentTime = 0;
       await video.play();
       const cropped = await recordStreamToBlob(
@@ -481,11 +533,22 @@ export async function cropVideoToFrameBlob(
         mimeType,
         videoBitsPerSecond,
         () => video.ended,
-        Math.ceil(video.duration * 1000) + 2500,
+        Math.ceil(duration * 1000) + 2500,
+        settings.audioBitrate,
+        (p) => onProgress?.({ progress: 0.02 + p * 0.9, label: '영상 압축 중…' }),
+        () => video.currentTime / duration,
       );
       video.pause();
-      if (cropped.size <= maxBytes) return cropped;
-      return compressVideoBlob(cropped, maxBytes);
+      if (cropped.size <= settings.maxBytes) {
+        onProgress?.({ progress: 1, label: '완료' });
+        return cropped;
+      }
+      return compressVideoBlob(cropped, profile, (update) => {
+        onProgress?.({
+          progress: 0.92 + update.progress * 0.08,
+          label: update.label ?? '용량 맞추는 중…',
+        });
+      });
     } finally {
       session.stopDraw();
       session.stream.getTracks().forEach((track) => track.stop());
@@ -546,14 +609,15 @@ export async function captureVideoPosterBlob(blob: Blob): Promise<Blob> {
 
 async function reencodeVideo(
   video: HTMLVideoElement,
-  maxBytes: number,
+  settings: VideoCompressSettings,
   scale: number,
   drawFrame?: (ctx: CanvasRenderingContext2D, el: HTMLVideoElement, outW: number, outH: number) => void,
+  onProgress?: (progress: number) => void,
 ): Promise<Blob> {
   const duration = video.duration;
-  const outW = Math.max(320, Math.round(video.videoWidth * scale));
-  const outH = Math.max(240, Math.round(video.videoHeight * scale));
-  const videoBitsPerSecond = computeVideoBitrate(maxBytes, duration);
+  const outW = Math.max(240, Math.round(settings.outputWidth * scale));
+  const outH = Math.max(240, Math.round(settings.outputHeight * scale));
+  const videoBitsPerSecond = computeVideoBitrate(duration, settings);
 
   const mimeType = pickVideoMime();
   if (!mimeType) throw new Error('이 브라우저에서는 영상 압축을 지원하지 않아요.');
@@ -583,6 +647,9 @@ async function reencodeVideo(
       videoBitsPerSecond,
       () => video.ended,
       Math.ceil(duration * 1000) + 2500,
+      settings.audioBitrate,
+      onProgress,
+      () => video.currentTime / duration,
     );
     video.pause();
     return blob;
@@ -595,9 +662,15 @@ async function reencodeVideo(
 
 export async function compressVideoBlob(
   blob: Blob,
-  maxBytes = CHAT_MAX_VIDEO_BYTES,
+  profileOrMaxBytes: VideoCompressProfile | number = 'feed',
+  onProgress?: MediaProgressReporter,
 ): Promise<Blob> {
-  if (blob.size <= maxBytes) return blob;
+  const settings =
+    typeof profileOrMaxBytes === 'number'
+      ? { ...videoCompressSettings('feed'), maxBytes: profileOrMaxBytes }
+      : videoCompressSettings(profileOrMaxBytes);
+
+  if (blob.size <= settings.maxBytes) return blob;
 
   const url = URL.createObjectURL(blob);
   const video = document.createElement('video');
@@ -612,14 +685,23 @@ export async function compressVideoBlob(
       throw new Error('영상 정보를 확인할 수 없어요.');
     }
 
-    for (const scale of [1, 0.85, 0.7, 0.55, 0.42]) {
+    const scales = [1, 0.85, 0.7, 0.55, 0.42];
+    for (let i = 0; i < scales.length; i += 1) {
+      const scale = scales[i];
       video.pause();
       video.currentTime = 0;
-      const result = await reencodeVideo(video, maxBytes, scale);
-      if (result.size <= maxBytes) return result;
+      const passStart = i / scales.length;
+      const passSpan = 1 / scales.length;
+      const result = await reencodeVideo(video, settings, scale, undefined, (p) => {
+        onProgress?.({
+          progress: passStart + p * passSpan,
+          label: '용량 맞추는 중…',
+        });
+      });
+      if (result.size <= settings.maxBytes) return result;
     }
 
-    throw new Error(`영상을 ${formatMaxSize(maxBytes)} 이하로 줄이지 못했어요.`);
+    throw new Error(`영상을 ${formatMaxSize(settings.maxBytes)} 이하로 줄이지 못했어요.`);
   } finally {
     URL.revokeObjectURL(url);
     video.src = '';

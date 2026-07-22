@@ -50,21 +50,75 @@ export async function uploadMediaBlob(
   scopeId: string,
   blob: Blob,
   fileLabel?: string,
+  onProgress?: (loaded: number, total: number) => void,
 ): Promise<string> {
   const supabase = requireSupabase();
   const ext = fileLabel?.includes('.') ? fileLabel.split('.').pop()!.toLowerCase() : extensionFromBlob(blob);
   const path = `${folder}/${scopeId}/${crypto.randomUUID()}.${ext}`;
 
-  const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, blob, {
-    contentType: blob.type || undefined,
-    upsert: false,
-    cacheControl: '3600',
-  });
-
-  if (error) throw error;
+  if (onProgress) {
+    try {
+      await uploadBlobWithProgress(supabase, path, blob, onProgress);
+    } catch {
+      const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, blob, {
+        contentType: blob.type || undefined,
+        upsert: false,
+        cacheControl: '3600',
+      });
+      if (error) throw error;
+    }
+  } else {
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, blob, {
+      contentType: blob.type || undefined,
+      upsert: false,
+      cacheControl: '3600',
+    });
+    if (error) throw error;
+  }
 
   const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
   return data.publicUrl;
+}
+
+async function uploadBlobWithProgress(
+  supabase: ReturnType<typeof requireSupabase>,
+  path: string,
+  blob: Blob,
+  onProgress: (loaded: number, total: number) => void,
+): Promise<void> {
+  const baseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
+  if (!baseUrl || !anonKey) {
+    throw new Error('Supabase가 설정되지 않았습니다.');
+  }
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token ?? anonKey;
+  const url = `${baseUrl}/storage/v1/object/${STORAGE_BUCKET}/${path}`;
+
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('apikey', anonKey);
+    xhr.setRequestHeader('Content-Type', blob.type || 'application/octet-stream');
+    xhr.setRequestHeader('cache-control', '3600');
+    xhr.setRequestHeader('x-upsert', 'false');
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded, event.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+        return;
+      }
+      reject(new Error(xhr.responseText || '파일 업로드에 실패했어요.'));
+    };
+    xhr.onerror = () => reject(new Error('파일 업로드에 실패했어요.'));
+    xhr.send(blob);
+  });
 }
 
 export async function uploadPosterForVideo(videoUrl: string, poster: Blob): Promise<string> {
