@@ -204,6 +204,18 @@
   z-index: 0;
 }
 
+.video-tile.is-playing .video-tile-poster {
+  opacity: 0;
+}
+
+.practice-room.is-transporting .track-thumb video {
+  visibility: hidden;
+}
+
+.track-thumb video {
+  pointer-events: none;
+}
+
 .video-tile-label {
   position: absolute;
   left: 4px;

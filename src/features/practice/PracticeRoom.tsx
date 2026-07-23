@@ -20,13 +20,16 @@ import {
   type JamTrack,
 } from './jamUtils';
 import {
-  applyMixTransport,
   cancelPendingSyncPlays,
+  clearMixBlobCache,
+  clearMixPlaybackMount,
   loadTrackElement,
   mixSessionDurationSec,
-  primeMixTransport,
+  mountMixPlaybackElements,
+  prepareMixSession,
   resumePracticeAudio,
   setElementVolume,
+  startMixSession,
 } from './practicePlayback';
 import { WaveformTrimSheet } from './WaveformTrimSheet';
 import { VideoTrackViewerSheet } from './VideoTrackViewerSheet';
@@ -73,6 +76,8 @@ const SYNC_NUDGE_FINE = 0.001;
 const SYNC_NUDGE_COARSE = 0.01;
 const SYNC_NUDGE_WIDE = 0.1;
 const MAX_SYNC_OFFSET = 10;
+const TRANSPORT_UI_MS = 50;
+const WAVEFORM_REPAINT_EPS = 0.004;
 
 function formatSyncOffset(sec: number): string {
   const ms = Math.round(sec * 1000);
@@ -104,10 +109,8 @@ function trackMixLocalProgress(t: JamTrack, elapsedSec: number): number {
 
 /**
  * Solo and mix both report `playProgress` as "seconds elapsed since the
- * left wall / shared timeline", 0–1, so this visual math is shared between
- * them — even though solo no longer uses `applyMixTransport` to *drive*
- * playback (see `playTrack`), it derives the same elapsed-seconds value by
- * reading the element's own `currentTime` instead of writing to it.
+ * left wall / shared timeline", 0–1. Mix uses a wall clock; solo reads the
+ * element's own `currentTime`. Neither re-seeks every animation frame.
  */
 function trackVisualLocalProgress(
   t: JamTrack,
@@ -195,6 +198,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     useDb ? [] : loadSessionTracks(session.id).map(fromStoredTrack),
   );
   const [mixPlaying, setMixPlaying] = useState(false);
+  const [mixPreparing, setMixPreparing] = useState(false);
   const [soloId, setSoloId] = useState<number | null>(null);
   const [status, setStatus] = useState('');
   const [transportLabel, setTransportLabel] = useState('새 동영상 올리기');
@@ -228,6 +232,9 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const videoThumbRefs = useRef<Map<number, HTMLVideoElement>>(new Map());
   const transportStartRef = useRef<number | null>(null);
   const soloWaitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mixPrepareGenRef = useRef(0);
+  const lastUiSyncRef = useRef(0);
+  const waveformPaintCacheRef = useRef<Map<number, number | null>>(new Map());
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
   const ownTrackIdsRef = useRef<Set<number>>(new Set());
@@ -262,19 +269,23 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     el.className = 'video-tile-playback';
     el.playsInline = true;
     mount.replaceChildren(el);
+    mount.closest('.video-tile')?.classList.add('is-playing');
   }, []);
 
-  const syncVideoThumbs = useCallback(() => {
-    tracksRef.current.forEach((t) => {
-      if (t.kind !== 'video') return;
-      const playback = activeRef.current.find((x) => x.dataset.trackId === String(t.id));
-      const thumb = videoThumbRefs.current.get(t.id);
-      if (!playback || !thumb) return;
-      if (Math.abs(thumb.currentTime - playback.currentTime) > 0.05) {
-        thumb.currentTime = playback.currentTime;
+  const pauseVideoThumbs = useCallback(() => {
+    videoThumbRefs.current.forEach((thumb) => {
+      try {
+        thumb.pause();
+      } catch {
+        /* ignore */
       }
-      if (!playback.paused && thumb.paused) void thumb.play().catch(() => {});
-      else if (playback.paused && !thumb.paused) thumb.pause();
+    });
+  }, []);
+
+  const clearVideoTilePlayback = useCallback(() => {
+    videoMountRefs.current.forEach((mount) => {
+      mount.replaceChildren();
+      mount.closest('.video-tile')?.classList.remove('is-playing');
     });
   }, []);
 
@@ -507,41 +518,40 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     activeRef.current.forEach((a) => {
       try {
         a.pause();
-        if (a.parentElement?.classList.contains('video-tile-mount')) {
-          a.parentElement.replaceChildren();
-        }
         a.removeAttribute('src');
         a.load();
       } catch {
         /* ignore */
       }
     });
-    videoThumbRefs.current.forEach((thumb) => {
-      try {
-        thumb.pause();
-        thumb.currentTime = 0;
-      } catch {
-        /* ignore */
-      }
-    });
+    clearVideoTilePlayback();
+    clearMixPlaybackMount();
+    pauseVideoThumbs();
     activeRef.current = [];
     transportStartRef.current = null;
+    lastUiSyncRef.current = 0;
+    waveformPaintCacheRef.current.clear();
     setSoloId(null);
     setMixPlaying(false);
     setPlayProgress({});
-  }, []);
+  }, [clearVideoTilePlayback, pauseVideoThumbs]);
 
   // Leaving the practice room (back button, route change) previously left
   // any playing solo/mix elements running — they were still attached to the
   // shared Web Audio graph and had no `pause()` call anywhere on unmount,
   // so their audio (and any mid-seek stutter) kept audibly playing even
   // after the screen was gone.
-  useEffect(() => () => stopAll(), [stopAll]);
+  useEffect(() => () => {
+    mixPrepareGenRef.current += 1;
+    clearMixBlobCache();
+    stopAll();
+  }, [stopAll]);
 
   const paintWaveforms = useCallback(
     (progress: Record<number, number> | null) => {
       const timeline = maxDur();
       const mode: 'mix' | 'solo' | 'idle' = mixPlaying ? 'mix' : soloId != null ? 'solo' : 'idle';
+      const cache = waveformPaintCacheRef.current;
       tracks.forEach((t) => {
         const canvas = canvasRefs.current.get(t.id);
         const global = progress?.[t.id];
@@ -550,6 +560,15 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
           global != null && trackMode !== 'idle'
             ? trackVisualLocalProgress(t, timeline, global, trackMode)
             : null;
+        const prev = cache.get(t.id);
+        if (
+          local != null &&
+          prev != null &&
+          Math.abs(prev - local) < WAVEFORM_REPAINT_EPS
+        ) {
+          return;
+        }
+        cache.set(t.id, local);
         const trimmedPeaks = slicePeaks(
           t.peaks,
           trackTrimStartSec(t),
@@ -581,10 +600,6 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         tracks.forEach((t) => {
           next[t.id] = p;
         });
-        tracksRef.current.filter(isTrackAudible).forEach((t) => {
-          const el = activeRef.current.find((x) => x.dataset.trackId === String(t.id));
-          if (el) applyMixTransport(el, t, elapsed);
-        });
       }
     } else if (soloId != null) {
       const solo = tracks.find((t) => t.id === soloId);
@@ -607,10 +622,14 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         }
       }
     }
-    setPlayProgress(next);
+    const now = performance.now();
+    const shouldUpdateUi = now - lastUiSyncRef.current >= TRANSPORT_UI_MS;
+    if (shouldUpdateUi) {
+      lastUiSyncRef.current = now;
+      setPlayProgress(next);
+    }
     paintWaveforms(next);
-    syncVideoThumbs();
-  }, [maxDur, mixPlaying, soloId, tracks, paintWaveforms, stopAll, syncVideoThumbs]);
+  }, [maxDur, mixPlaying, soloId, tracks, paintWaveforms, stopAll]);
 
   useEffect(() => {
     if (!mixPlaying && soloId == null) return;
@@ -638,13 +657,24 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         mountPlaybackVideo(latest.id, el);
         transportStartRef.current = performance.now();
         setElementVolume(el, trackVolume(latest));
-        const start = () => void el.play().catch(() => onFail?.());
+        const trimStart = trackTrimStartSec(latest);
+        const windowEnd = trackPlayableEndSec(latest);
         const offset = trackSyncOffsetSec(latest);
+        const start = () => {
+          let fileStart = trimStart;
+          if (offset < 0) {
+            fileStart = Math.min(windowEnd, trimStart + Math.max(0, -offset));
+          }
+          el.currentTime = fileStart;
+          void el.play().catch(() => onFail?.());
+        };
         if (offset > 0) {
+          el.currentTime = trimStart;
           soloWaitTimerRef.current = setTimeout(start, offset * 1000);
         } else {
           start();
         }
+        pauseVideoThumbs();
       })
       .catch(() => onFail?.());
   };
@@ -905,20 +935,37 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       return;
     }
     setStatus('믹스 준비 중…');
-    void Promise.all(list.map((t) => loadTrackElement(t)))
-      .then((elements) => {
+    setMixPreparing(true);
+    mediaJobStartedRef.current = performance.now();
+    reportMediaJob('트랙 불러오는 중…', 0);
+    const prepareGen = ++mixPrepareGenRef.current;
+    void prepareMixSession(list, {
+      onProgress: ({ label, progress }) => reportMediaJob(label, progress),
+    })
+      .then(({ audioElements, videoByTrackId }) => {
+        if (prepareGen !== mixPrepareGenRef.current) return;
+        clearMediaJob();
+        setMixPreparing(false);
         const latest = tracksRef.current;
         const syncedList = list.map((t) => latest.find((x) => x.id === t.id) ?? t);
+        videoByTrackId.forEach((el, trackId) => {
+          activeRef.current.push(el);
+          mountPlaybackVideo(trackId, el);
+        });
         setStatus('');
         setMixPlaying(true);
-        elements.forEach((el, index) => {
+        audioElements.forEach((el) => {
           activeRef.current.push(el);
-          mountPlaybackVideo(syncedList[index].id, el);
         });
+        mountMixPlaybackElements(audioElements);
         transportStartRef.current = performance.now();
-        primeMixTransport(syncedList, elements);
+        startMixSession(syncedList, audioElements, videoByTrackId);
+        pauseVideoThumbs();
       })
       .catch(() => {
+        if (prepareGen !== mixPrepareGenRef.current) return;
+        clearMediaJob();
+        setMixPreparing(false);
         setStatus('트랙을 불러오지 못했어요. 잠시 후 다시 시도해주세요.');
       });
   };
@@ -951,8 +998,10 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
     );
   }
 
+  const isTransporting = mixPlaying || soloId != null;
+
   return (
-    <div className="practice-room page">
+    <div className={`practice-room page${isTransporting ? ' is-transporting' : ''}`}>
       <header className="pr-head">
         <button type="button" className="back" onClick={onBack}>
           ← 세션
@@ -1001,7 +1050,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         <button
           type="button"
           className={`play-all ${mixPlaying ? 'on' : ''}`}
-          disabled={!tracks.length}
+          disabled={!tracks.length || mixPreparing}
           onClick={toggleMix}
         >
           {mixPlaying ? '■' : '▶'}
@@ -1037,7 +1086,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                       src={t.blobUrl}
                       muted
                       playsInline
-                      preload="auto"
+                      preload="metadata"
                       aria-hidden
                     />
                     <div
@@ -1089,7 +1138,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                       src={t.blobUrl}
                       muted
                       playsInline
-                      preload="auto"
+                      preload="metadata"
                     />
                     <span className="vid-badge">VID</span>
                   </>

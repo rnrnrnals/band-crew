@@ -1,7 +1,8 @@
 import type { JamTrack } from './jamUtils';
 import {
-  trackFileTimeAtSessionElapsed,
+  trackPlayableEndSec,
   trackSessionDurationSec,
+  trackSyncOffsetSec,
   trackTrimStartSec,
 } from './jamUtils';
 import { applyMediaElementUrl, isRemoteMediaUrl } from '../../utils/videoMediaUtils';
@@ -109,6 +110,182 @@ function waitCanPlay(el: HTMLMediaElement): Promise<void> {
   });
 }
 
+/** Wait until the browser thinks it can play through without rebuffering. */
+function waitCanPlayThrough(el: HTMLMediaElement): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (el.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) {
+      resolve();
+      return;
+    }
+    const onReady = () => {
+      cleanup();
+      resolve();
+    };
+    const onErr = () => {
+      cleanup();
+      reject(new Error('media load failed'));
+    };
+    const cleanup = () => {
+      el.removeEventListener('canplaythrough', onReady);
+      el.removeEventListener('error', onErr);
+    };
+    el.addEventListener('canplaythrough', onReady);
+    el.addEventListener('error', onErr);
+  });
+}
+
+const mixBlobCache = new Map<string, string>();
+
+/** Drop cached remote→blob URLs (e.g. when leaving the practice room). */
+export function clearMixBlobCache(): void {
+  mixBlobCache.forEach((blobUrl, remoteUrl) => {
+    if (blobUrl.startsWith('blob:') && blobUrl !== remoteUrl) {
+      URL.revokeObjectURL(blobUrl);
+    }
+  });
+  mixBlobCache.clear();
+}
+
+async function fetchRemoteMediaBlob(
+  url: string,
+  onProgress?: (loaded: number, total: number | null) => void,
+): Promise<Blob> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('media fetch failed');
+
+  const lengthHeader = res.headers.get('content-length');
+  const total = lengthHeader ? Number.parseInt(lengthHeader, 10) : null;
+  if (!res.body || total == null || !Number.isFinite(total) || total <= 0) {
+    onProgress?.(0, null);
+    const blob = await res.blob();
+    onProgress?.(1, 1);
+    return blob;
+  }
+
+  const reader = res.body.getReader();
+  const chunks: BlobPart[] = [];
+  let loaded = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.byteLength;
+    onProgress?.(loaded, total);
+  }
+  const type = res.headers.get('content-type') ?? 'video/mp4';
+  return new Blob(chunks, { type });
+}
+
+async function resolveMixPlaybackUrl(
+  track: JamTrack,
+  onProgress?: (loaded: number, total: number | null) => void,
+): Promise<string> {
+  const url = track.blobUrl;
+  if (!isRemoteMediaUrl(url)) return url;
+
+  const cached = mixBlobCache.get(url);
+  if (cached) {
+    onProgress?.(1, 1);
+    return cached;
+  }
+
+  const blob = await fetchRemoteMediaBlob(url, onProgress);
+  const blobUrl = URL.createObjectURL(blob);
+  mixBlobCache.set(url, blobUrl);
+  return blobUrl;
+}
+
+export type MixPrepareProgress = {
+  label: string;
+  progress: number;
+};
+
+export type PreparedMixSession = {
+  audioElements: HTMLMediaElement[];
+  videoByTrackId: Map<number, HTMLMediaElement>;
+};
+
+/**
+ * Download each track fully (remote URLs → `blob:`), decode both audio +
+ * stage-video elements, then return — playback starts only after this resolves.
+ * One download per track; audio + muted tile video share the same blob URL.
+ */
+export async function prepareMixSession(
+  tracks: JamTrack[],
+  options?: { onProgress?: (update: MixPrepareProgress) => void },
+): Promise<PreparedMixSession> {
+  if (tracks.length === 0) {
+    return { audioElements: [], videoByTrackId: new Map() };
+  }
+
+  const trackProgress = tracks.map(() => 0);
+  const reportDownloads = () => {
+    const sum = trackProgress.reduce((acc, value) => acc + value, 0);
+    options?.onProgress?.({
+      label: '트랙 다운로드 중…',
+      progress: sum / (tracks.length * 2),
+    });
+  };
+
+  const playbackUrls = await Promise.all(
+    tracks.map(async (track, index) => {
+      const url = await resolveMixPlaybackUrl(track, (loaded, total) => {
+        trackProgress[index] = total && total > 0 ? loaded / total : 0.35;
+        reportDownloads();
+      });
+      trackProgress[index] = 1;
+      reportDownloads();
+      return url;
+    }),
+  );
+
+  options?.onProgress?.({ label: '디코딩 준비 중…', progress: 0.5 });
+
+  const decodeProgress = tracks.map(() => 0);
+  const reportDecodes = () => {
+    const sum = decodeProgress.reduce((acc, value) => acc + value, 0);
+    options?.onProgress?.({
+      label: '재생 준비 중…',
+      progress: 0.5 + sum / (tracks.length * 2),
+    });
+  };
+
+  const prepared = await Promise.all(
+    tracks.map(async (track, index) => {
+      const playbackUrl = playbackUrls[index];
+      const trackWithUrl = { ...track, blobUrl: playbackUrl };
+
+      const audioEl = createMixPlaybackElement(trackWithUrl);
+      await waitCanPlayThrough(audioEl);
+      audioEl.currentTime = trackTrimStartSec(track);
+      decodeProgress[index] += 0.5;
+      reportDecodes();
+
+      let videoEl: HTMLVideoElement | undefined;
+      if (track.kind === 'video') {
+        videoEl = createMixVideoElement(trackWithUrl);
+        await waitCanPlayThrough(videoEl);
+        videoEl.currentTime = trackTrimStartSec(track);
+      }
+
+      decodeProgress[index] = 1;
+      reportDecodes();
+
+      return { track, audioEl, videoEl };
+    }),
+  );
+
+  options?.onProgress?.({ label: '준비 완료', progress: 1 });
+
+  const audioElements = prepared.map((row) => row.audioEl);
+  const videoByTrackId = new Map<number, HTMLMediaElement>();
+  prepared.forEach(({ track, videoEl }) => {
+    if (videoEl) videoByTrackId.set(track.id, videoEl);
+  });
+
+  return { audioElements, videoByTrackId };
+}
+
 export function createTrackElement(track: JamTrack): HTMLMediaElement {
   const el = document.createElement(track.kind === 'video' ? 'video' : 'audio');
   el.preload = 'auto';
@@ -130,78 +307,127 @@ export async function loadTrackElement(track: JamTrack): Promise<HTMLMediaElemen
   return el;
 }
 
-export function cancelPendingSyncPlays(_elements: HTMLMediaElement[]): void {
-  /* mix transport is driven by elapsed time */
+/** Mix jam playback uses `<audio>` even for video files — same URL, audio-only
+ * decode. Running N `<video>` decoders plus per-frame `currentTime` seeks was
+ * what made multi-track mix stutter; native parallel `play()` matches the old
+ * in-app recording flow. */
+export function createMixPlaybackElement(track: JamTrack): HTMLMediaElement {
+  const el = document.createElement('audio');
+  el.preload = 'auto';
+  el.dataset.trackId = String(track.id);
+  applyMediaElementUrl(el, track.blobUrl);
+  ensureGainNode(el);
+  return el;
 }
 
-/** Drift beyond this forces a hard seek (start-of-playback, resume, or a
- * real desync too large for a speed nudge to close in reasonable time). */
-const DRIFT_HARD_SEEK_SEC = 0.35;
-/** Drift above this starts a corrective speed nudge. */
-const DRIFT_IGNORE_SEC = 0.03;
-/** Drift must fall back below this (lower than the entry threshold, on
- * purpose) before a nudge stops — a single shared threshold made the rate
- * flip on/off every frame right at the boundary, which is audible as a
- * pitch "warble" on top of the plain stutter. */
-const DRIFT_SETTLE_SEC = 0.015;
-const NUDGE_RATE_AHEAD = 1.06;
-const NUDGE_RATE_BEHIND = 0.94;
+/** Muted video for the stage tiles — audio comes from `createMixPlaybackElement`. */
+export function createMixVideoElement(track: JamTrack): HTMLVideoElement {
+  const el = document.createElement('video');
+  el.preload = 'auto';
+  el.dataset.trackId = String(track.id);
+  el.dataset.mixVisual = '1';
+  el.playsInline = true;
+  el.setAttribute('playsinline', '');
+  el.muted = true;
+  applyMediaElementUrl(el, track.blobUrl);
+  return el;
+}
 
-const nudgeDirection = new WeakMap<HTMLMediaElement, 'ahead' | 'behind'>();
+let mixAudioMount: HTMLElement | null = null;
+const mixPlayTimers = new Set<number>();
 
-/** Position a track for the current mix session elapsed time. */
-export function applyMixTransport(
-  el: HTMLMediaElement,
-  track: JamTrack,
-  elapsedSec: number,
-): void {
-  const vol = track.volume ?? 1;
-  const fileTime = trackFileTimeAtSessionElapsed(track, elapsedSec);
+function getMixAudioMount(): HTMLElement {
+  if (!mixAudioMount) {
+    mixAudioMount = document.createElement('div');
+    mixAudioMount.id = 'practice-mix-audio-mount';
+    mixAudioMount.hidden = true;
+    mixAudioMount.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(mixAudioMount);
+  }
+  return mixAudioMount;
+}
 
-  if (vol === 0 || fileTime == null) {
-    setGainValue(el, 0);
-    if (!el.paused) el.pause();
-    nudgeDirection.delete(el);
+/** Keep mix `<audio>` elements in the DOM (iOS is picky about detached media). */
+export function mountMixPlaybackElements(elements: HTMLMediaElement[]): void {
+  getMixAudioMount().replaceChildren(...elements);
+}
+
+export function clearMixPlaybackMount(): void {
+  if (mixAudioMount) mixAudioMount.replaceChildren();
+}
+
+function attachTrimEndGuard(el: HTMLMediaElement, windowEnd: number): void {
+  const guard = () => {
+    if (!el.paused && el.currentTime >= windowEnd - 0.03) {
+      el.pause();
+      el.removeEventListener('timeupdate', guard);
+    }
+  };
+  el.addEventListener('timeupdate', guard);
+}
+
+export function cancelPendingSyncPlays(_elements: HTMLMediaElement[]): void {
+  mixPlayTimers.forEach((id) => clearTimeout(id));
+  mixPlayTimers.clear();
+}
+
+function primeMixElement(el: HTMLMediaElement, vol: number, visualOnly: boolean): void {
+  el.pause();
+  el.playbackRate = 1;
+  if (visualOnly) {
+    el.muted = true;
+    el.volume = 0;
     return;
   }
-
-  const drift = fileTime - el.currentTime;
-  const absDrift = Math.abs(drift);
-  const wasNudging = nudgeDirection.get(el);
-
-  if (absDrift > DRIFT_HARD_SEEK_SEC || el.paused) {
-    el.currentTime = fileTime;
-    el.playbackRate = 1;
-    nudgeDirection.delete(el);
-  } else if (absDrift <= DRIFT_SETTLE_SEC) {
-    if (wasNudging) {
-      el.playbackRate = 1;
-      nudgeDirection.delete(el);
-    }
-  } else if (absDrift > DRIFT_IGNORE_SEC || wasNudging) {
-    // Small ongoing drift: nudge speed instead of seeking. A streamed
-    // (non-`blob:`) element can't seek for free — every `currentTime`
-    // assignment forces it to re-buffer at the new position, which is what
-    // made mix/solo playback sound glitchy/stuttery once remote audio
-    // actually started playing (it used to be silently Web-Audio-tainted,
-    // so nobody heard the constant re-seeking before).
-    const direction: 'ahead' | 'behind' = drift > 0 ? 'ahead' : 'behind';
-    if (direction !== wasNudging) {
-      el.playbackRate = direction === 'ahead' ? NUDGE_RATE_AHEAD : NUDGE_RATE_BEHIND;
-      nudgeDirection.set(el, direction);
-    }
-  }
-
-  setGainValue(el, vol);
-  if (el.paused) void el.play().catch(() => {});
+  setElementVolume(el, vol);
 }
 
-/** Prime mix elements before the transport loop takes over. */
-export function primeMixTransport(tracks: JamTrack[], elements: HTMLMediaElement[]): void {
+function playMixElement(
+  el: HTMLMediaElement,
+  start: number,
+  windowEnd: number,
+  vol: number,
+  visualOnly: boolean,
+): void {
+  el.currentTime = start;
+  attachTrimEndGuard(el, windowEnd);
+  if (visualOnly || vol > 0) void el.play().catch(() => {});
+}
+
+/** Start mix audio + optional muted stage videos together — no per-frame seeking. */
+export function startMixSession(
+  tracks: JamTrack[],
+  audioElements: HTMLMediaElement[],
+  videoElements: Map<number, HTMLMediaElement> = new Map(),
+): void {
+  cancelPendingSyncPlays(audioElements);
   tracks.forEach((track, i) => {
-    const el = elements[i];
-    el.pause();
-    applyMixTransport(el, track, 0);
+    const audioEl = audioElements[i];
+    const videoEl = track.kind === 'video' ? videoElements.get(track.id) : undefined;
+    const offset = trackSyncOffsetSec(track);
+    const trimStart = trackTrimStartSec(track);
+    const windowEnd = trackPlayableEndSec(track);
+    const vol = track.volume ?? 1;
+
+    primeMixElement(audioEl, vol, false);
+    if (videoEl) primeMixElement(videoEl, 0, true);
+
+    const begin = () => {
+      let start = trimStart;
+      if (offset < 0) {
+        start = Math.min(windowEnd, trimStart + Math.max(0, -offset));
+      }
+      playMixElement(audioEl, start, windowEnd, vol, false);
+      if (videoEl) playMixElement(videoEl, start, windowEnd, 0, true);
+    };
+
+    if (offset > 0) {
+      audioEl.currentTime = trimStart;
+      if (videoEl) videoEl.currentTime = trimStart;
+      mixPlayTimers.add(window.setTimeout(begin, offset * 1000));
+    } else {
+      begin();
+    }
   });
 }
 
