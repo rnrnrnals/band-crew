@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../state/AppContext';
 import { LeaderGate } from '../features/team/LeaderGate';
-import { compressDataUrlImage, prepareMediaBlob, readFileAsDataUrl } from '../utils/fileMedia';
+import { compressDataUrlImage, getVideoDuration, prepareMediaBlob, readFileAsDataUrl, STORY_MAX_VIDEO_DURATION_SEC, videoNeedsTrim } from '../utils/fileMedia';
 import { canvasToImageBlob } from '../utils/imageOutput';
 import { ensurePublishedMedia } from '../utils/mediaUpload';
+import { VideoTrimSheet, type VideoClipSelection } from '../features/media/VideoTrimSheet';
 import {
   DEFAULT_IMAGE_TRANSFORM,
   DEFAULT_TEXT_POSITION,
@@ -15,10 +16,21 @@ import {
   midpoint,
   type StoryImageTransform,
 } from '../utils/storyGestures';
-import { renderStoryComposite } from '../utils/storyUtils';
+import { renderStoryComposite, exportStoryVideoBlob, hasStoryVideoTransform } from '../utils/storyUtils';
+import {
+  cycleStoryFont,
+  DEFAULT_STORY_TEXT_STYLE,
+  STORY_BG_COLOR_PRESETS,
+  STORY_FONT_LABELS,
+  STORY_TEXT_COLOR_PRESETS,
+  storyTextInputStyle,
+  storyTextSurfaceStyle,
+  type StoryTextStyle,
+} from '../utils/storyTextStyle';
 import './StoryUploadPage.css';
 
 type StoryStep = 'camera' | 'edit';
+type StoryMediaKind = 'image' | 'video';
 
 const DRAG_THRESHOLD = 6;
 
@@ -30,6 +42,7 @@ export function StoryUploadPage() {
   const cameraPreviewRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const editVideoRef = useRef<HTMLVideoElement>(null);
   const imageTransformRef = useRef<StoryImageTransform>(DEFAULT_IMAGE_TRANSFORM);
   const imagePointersRef = useRef(new Map<number, { x: number; y: number }>());
   const imageGestureRef = useRef<{
@@ -47,10 +60,16 @@ export function StoryUploadPage() {
   } | null>(null);
 
   const [step, setStep] = useState<StoryStep>('camera');
+  const [mediaKind, setMediaKind] = useState<StoryMediaKind>('image');
   const [overlayText, setOverlayText] = useState('');
+  const [textStyle, setTextStyle] = useState<StoryTextStyle>(DEFAULT_STORY_TEXT_STYLE);
   const [textPos, setTextPos] = useState(DEFAULT_TEXT_POSITION);
   const [textEditing, setTextEditing] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
+  const [videoClip, setVideoClip] = useState<Pick<VideoClipSelection, 'startSec' | 'endSec'> | null>(null);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+  const [trimVideo, setTrimVideo] = useState<{ file: Blob; fileName?: string } | null>(null);
   const [imageTransform, setImageTransform] = useState<StoryImageTransform>(DEFAULT_IMAGE_TRANSFORM);
   const [galleryThumb, setGalleryThumb] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
@@ -70,6 +89,7 @@ export function StoryUploadPage() {
 
   const resetEditState = () => {
     setOverlayText('');
+    setTextStyle(DEFAULT_STORY_TEXT_STYLE);
     setTextPos(DEFAULT_TEXT_POSITION);
     setTextEditing(false);
     setImageTransform(DEFAULT_IMAGE_TRANSFORM);
@@ -108,9 +128,13 @@ export function StoryUploadPage() {
 
   useEffect(() => {
     if (step !== 'camera') return;
+    if (trimVideo) {
+      stopCamera();
+      return;
+    }
     void startCamera(facingMode);
     return () => stopCamera();
-  }, [step]);
+  }, [step, trimVideo, facingMode]);
 
   useEffect(() => {
     const video = cameraPreviewRef.current;
@@ -124,11 +148,55 @@ export function StoryUploadPage() {
     if (textEditing) textInputRef.current?.focus();
   }, [textEditing]);
 
+  useEffect(() => {
+    if (step !== 'edit' || mediaKind !== 'video' || !videoPreviewUrl) return;
+    const video = editVideoRef.current;
+    if (!video) return;
+
+    const start = videoClip?.startSec ?? 0;
+    const end = videoClip?.endSec;
+
+    const syncPreview = () => {
+      if (Number.isFinite(start)) video.currentTime = start;
+      void video.play().catch(() => {});
+    };
+
+    const onTimeUpdate = () => {
+      if (end != null && Number.isFinite(end) && video.currentTime >= end - 0.05) {
+        video.currentTime = start;
+      }
+    };
+
+    video.addEventListener('loadedmetadata', syncPreview);
+    video.addEventListener('timeupdate', onTimeUpdate);
+    if (video.readyState >= 1) syncPreview();
+
+    return () => {
+      video.removeEventListener('loadedmetadata', syncPreview);
+      video.removeEventListener('timeupdate', onTimeUpdate);
+    };
+  }, [step, mediaKind, videoPreviewUrl, videoClip?.startSec, videoClip?.endSec]);
+
+  useEffect(() => {
+    return () => {
+      if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+    };
+  }, [videoPreviewUrl]);
+
+  const clearVideoPreview = () => {
+    if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+    setVideoPreviewUrl(null);
+    setVideoBlob(null);
+    setVideoClip(null);
+  };
+
   const setImageFromBlob = (blob: Blob, thumb?: string) => {
     void prepareMediaBlob(blob, 'image')
       .then(async (prepared) => {
         const url = await readFileAsDataUrl(prepared);
         stopCamera();
+        clearVideoPreview();
+        setMediaKind('image');
         setImageUrl(url);
         if (thumb) setGalleryThumb(thumb);
         resetEditState();
@@ -138,6 +206,50 @@ export function StoryUploadPage() {
       .catch((err) => {
         setError(err instanceof Error ? err.message : '사진을 처리하지 못했어요.');
       });
+  };
+
+  const setVideoFromBlob = (blob: Blob, clip?: Pick<VideoClipSelection, 'startSec' | 'endSec'> | null) => {
+    void prepareMediaBlob(blob, 'video')
+      .then((prepared) => {
+        stopCamera();
+        setImageUrl(null);
+        clearVideoPreview();
+        const url = URL.createObjectURL(prepared);
+        setVideoBlob(prepared);
+        setVideoClip(clip ?? null);
+        setVideoPreviewUrl(url);
+        setMediaKind('video');
+        resetEditState();
+        setStep('edit');
+        setError('');
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : '영상을 처리하지 못했어요.');
+      });
+  };
+
+  const handleTrimConfirm = (result: Blob | VideoClipSelection) => {
+    setTrimVideo(null);
+    if (result instanceof Blob) {
+      setVideoFromBlob(result);
+      return;
+    }
+    setVideoFromBlob(result.file, { startSec: result.startSec, endSec: result.endSec });
+  };
+
+  const handleVideoFile = async (file: File) => {
+    const thumb = URL.createObjectURL(file);
+    setGalleryThumb(thumb);
+    try {
+      const duration = await getVideoDuration(thumb);
+      if (videoNeedsTrim(duration, STORY_MAX_VIDEO_DURATION_SEC)) {
+        setTrimVideo({ file, fileName: file.name });
+        return;
+      }
+      setVideoFromBlob(file);
+    } catch {
+      setError('영상 정보를 확인하지 못했어요.');
+    }
   };
 
   const takePhoto = () => {
@@ -155,16 +267,22 @@ export function StoryUploadPage() {
 
   const onFileSelected = (file: File | undefined) => {
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('사진 파일만 올릴 수 있어요.');
+    if (file.type.startsWith('video/')) {
+      void handleVideoFile(file);
       return;
     }
-    const thumb = URL.createObjectURL(file);
-    setImageFromBlob(file, thumb);
+    if (file.type.startsWith('image/')) {
+      const thumb = URL.createObjectURL(file);
+      setImageFromBlob(file, thumb);
+      return;
+    }
+    setError('사진 또는 영상 파일만 올릴 수 있어요.');
   };
 
   const backToCamera = () => {
     setImageUrl(null);
+    clearVideoPreview();
+    setMediaKind('image');
     resetEditState();
     setStep('camera');
   };
@@ -294,10 +412,37 @@ export function StoryUploadPage() {
   };
 
   const submit = async () => {
-    if (!activeTeam || !imageUrl || !stageRef.current) return;
+    if (!activeTeam) return;
     setSubmitting(true);
     setError('');
     try {
+      if (mediaKind === 'video') {
+        if (!videoBlob || !stageRef.current) return;
+        const rect = stageRef.current.getBoundingClientRect();
+        const needsProcessing = !!videoClip || hasStoryVideoTransform(imageTransform);
+        let uploadBlob = videoBlob;
+        if (needsProcessing) {
+          uploadBlob = await exportStoryVideoBlob(
+            videoBlob,
+            rect.width,
+            rect.height,
+            imageTransform,
+            videoClip ?? undefined,
+          );
+        }
+        uploadBlob = await prepareMediaBlob(uploadBlob, 'video');
+        const mediaUrl = await ensurePublishedMedia(uploadBlob, 'stories', activeTeam.id);
+        addStory({
+          teamId: activeTeam.id,
+          image: mediaUrl,
+          mediaType: 'video',
+          caption: overlayText.trim(),
+        });
+        navigate('/');
+        return;
+      }
+
+      if (!imageUrl || !stageRef.current) return;
       const rect = stageRef.current.getBoundingClientRect();
       const finalImage = await renderStoryComposite(
         imageUrl,
@@ -305,7 +450,7 @@ export function StoryUploadPage() {
         rect.height,
         imageTransform,
         overlayText.trim()
-          ? { text: overlayText, x: textPos.x, y: textPos.y }
+          ? { text: overlayText, x: textPos.x, y: textPos.y, style: textStyle }
           : undefined,
       );
       const compressedImage = await compressDataUrlImage(finalImage);
@@ -313,6 +458,7 @@ export function StoryUploadPage() {
       addStory({
         teamId: activeTeam.id,
         image,
+        mediaType: 'image',
         caption: overlayText.trim(),
       });
       navigate('/');
@@ -335,6 +481,9 @@ export function StoryUploadPage() {
     left: `${textPos.x * 100}%`,
     top: `${textPos.y * 100}%`,
   };
+
+  const textSurfaceStyle = storyTextSurfaceStyle(textStyle);
+  const textEditorStyle = storyTextInputStyle(textStyle);
 
   if (!activeTeam) return null;
 
@@ -405,24 +554,28 @@ export function StoryUploadPage() {
         </>
       )}
 
-      {step === 'edit' && imageUrl && (
+      {step === 'edit' && (imageUrl || videoPreviewUrl) && (
         <>
           <div
             ref={stageRef}
-            className={`story-studio-edit-stage ${textEditing ? 'story-studio-edit-stage--text' : ''}`}
-            onPointerDown={onImagePointerDown}
-            onPointerMove={onImagePointerMove}
-            onPointerUp={onImagePointerUp}
-            onPointerCancel={onImagePointerUp}
+            className={`story-studio-edit-stage${textEditing ? ' story-studio-edit-stage--text' : ''}`}
+            onPointerDown={textEditing ? undefined : onImagePointerDown}
+            onPointerMove={textEditing ? undefined : onImagePointerMove}
+            onPointerUp={textEditing ? undefined : onImagePointerUp}
+            onPointerCancel={textEditing ? undefined : onImagePointerUp}
           >
             <div className="story-studio-image-layer" style={imageLayerStyle}>
-              <img src={imageUrl} alt="" draggable={false} />
+              {mediaKind === 'video' && videoPreviewUrl ? (
+                <video ref={editVideoRef} src={videoPreviewUrl} autoPlay loop muted playsInline />
+              ) : (
+                imageUrl && <img src={imageUrl} alt="" draggable={false} />
+              )}
             </div>
 
             {!textEditing && overlayText && (
               <div
                 className="story-studio-text-preview"
-                style={textLayerStyle}
+                style={{ ...textLayerStyle, ...textSurfaceStyle }}
                 onPointerDown={onTextPointerDown}
                 onPointerMove={onTextPointerMove}
                 onPointerUp={onTextPointerUp}
@@ -437,6 +590,7 @@ export function StoryUploadPage() {
                 <textarea
                   ref={textInputRef}
                   className="story-studio-text-input"
+                  style={textEditorStyle}
                   value={overlayText}
                   onChange={(e) => setOverlayText(e.target.value)}
                   placeholder="텍스트 입력…"
@@ -458,19 +612,70 @@ export function StoryUploadPage() {
               </button>
             ) : (
               <button type="button" className="story-studio-share" disabled={submitting} onClick={() => void submit()}>
-                {submitting ? '…' : '공유'}
+                {submitting
+                  ? mediaKind === 'video' &&
+                    (videoClip || hasStoryVideoTransform(imageTransform))
+                    ? '영상 처리 중…'
+                    : '…'
+                  : '공유'}
               </button>
             )}
           </header>
 
           {error && <p className="story-studio-toast">{error}</p>}
 
+          {textEditing && (
+            <footer className="story-studio-text-style-bar">
+              <button
+                type="button"
+                className="story-text-font-btn"
+                style={{ fontFamily: textSurfaceStyle.fontFamily }}
+                onClick={() =>
+                  setTextStyle((prev) => ({ ...prev, fontId: cycleStoryFont(prev.fontId) }))
+                }
+                aria-label={`글꼴: ${STORY_FONT_LABELS[textStyle.fontId]}`}
+              >
+                Aa
+              </button>
+              <div className="story-text-style-group">
+                <span className="story-text-style-label">글자</span>
+                <div className="story-text-swatches">
+                  {STORY_TEXT_COLOR_PRESETS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      className={`story-text-swatch${textStyle.textColor === color ? ' is-active' : ''}`}
+                      style={{ background: color }}
+                      aria-label={`글자색 ${color}`}
+                      onClick={() => setTextStyle((prev) => ({ ...prev, textColor: color }))}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="story-text-style-group">
+                <span className="story-text-style-label">배경</span>
+                <div className="story-text-swatches">
+                  {STORY_BG_COLOR_PRESETS.map((color) => (
+                    <button
+                      key={color ?? 'none'}
+                      type="button"
+                      className={`story-text-swatch${textStyle.backgroundColor === color ? ' is-active' : ''}${color == null ? ' is-none' : ''}`}
+                      style={color ? { background: color } : undefined}
+                      aria-label={color == null ? '배경 없음' : `배경색 ${color}`}
+                      onClick={() => setTextStyle((prev) => ({ ...prev, backgroundColor: color }))}
+                    />
+                  ))}
+                </div>
+              </div>
+            </footer>
+          )}
+
           {!textEditing && (
             <footer className="story-studio-edit-tools">
               <button type="button" className="story-studio-aa" onClick={() => setTextEditing(true)}>
                 Aa
               </button>
-              <span className="story-studio-edit-hint">사진·텍스트를 손가락으로 조절하세요</span>
+              <span className="story-studio-edit-hint">사진·영상·텍스트를 손가락으로 조절하세요</span>
             </footer>
           )}
         </>
@@ -479,13 +684,24 @@ export function StoryUploadPage() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         className="story-studio-file"
         onChange={(e) => {
           onFileSelected(e.target.files?.[0]);
           e.target.value = '';
         }}
       />
+
+      {trimVideo && (
+        <VideoTrimSheet
+          file={trimVideo.file}
+          fileName={trimVideo.fileName}
+          maxDurationSec={STORY_MAX_VIDEO_DURATION_SEC}
+          deferTrim
+          onConfirm={handleTrimConfirm}
+          onClose={() => setTrimVideo(null)}
+        />
+      )}
     </div>
     </LeaderGate>
   );

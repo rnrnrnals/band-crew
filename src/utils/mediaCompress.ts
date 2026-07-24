@@ -343,6 +343,7 @@ export function getAudioDuration(url: string, timeoutMs = 8000): Promise<number 
 }
 
 export const MAX_VIDEO_DURATION_SEC = 5 * 60;
+export const STORY_MAX_VIDEO_DURATION_SEC = 15;
 
 export function formatMediaTime(sec: number): string {
   const total = Math.max(0, Math.floor(sec));
@@ -400,11 +401,14 @@ async function recordVideoSegment(
   drawFrame?: (ctx: CanvasRenderingContext2D, el: HTMLVideoElement) => void,
 ): Promise<Blob> {
   const videoBitsPerSecond = computeVideoBitrate(clipLen, settings);
-  video.muted = false;
-  video.volume = 1;
+  const sourceW = video.videoWidth || settings.outputWidth;
+  const sourceH = video.videoHeight || settings.outputHeight;
+  const scale = Math.min(settings.outputWidth / sourceW, settings.outputHeight / sourceH, 1);
+  const width = Math.max(240, Math.round(sourceW * scale));
+  const height = Math.max(240, Math.round(sourceH * scale));
+  video.muted = true;
+  video.playsInline = true;
 
-  const width = Math.max(320, video.videoWidth);
-  const height = Math.max(240, video.videoHeight);
   const session = createVideoRecordSession(
     video,
     width,
@@ -420,6 +424,9 @@ async function recordVideoSegment(
 
   try {
     await video.play();
+    if (video.paused) {
+      throw new Error('영상 재생을 시작하지 못했어요. 다시 시도해주세요.');
+    }
     const blob = await recordStreamToBlob(
       session.stream,
       mimeType,
@@ -442,11 +449,12 @@ export async function trimVideoBlob(
   startSec: number,
   endSec: number,
   maxBytes = CHAT_MAX_VIDEO_BYTES,
+  maxDurationSec = MAX_VIDEO_DURATION_SEC,
 ): Promise<Blob> {
   const clipDuration = endSec - startSec;
   if (clipDuration <= 0.2) throw new Error('업로드할 구간을 선택해주세요.');
-  if (clipDuration > MAX_VIDEO_DURATION_SEC + 0.5) {
-    throw new Error('최대 5분까지 선택할 수 있어요.');
+  if (clipDuration > maxDurationSec + 0.5) {
+    throw new Error(`최대 ${formatMediaTime(maxDurationSec)}까지 선택할 수 있어요.`);
   }
 
   const url = URL.createObjectURL(blob);
@@ -459,7 +467,7 @@ export async function trimVideoBlob(
   try {
     await waitEvent(video, 'loadedmetadata');
     const safeStart = Math.max(0, Math.min(startSec, video.duration - 0.2));
-    const safeEnd = Math.min(endSec, safeStart + MAX_VIDEO_DURATION_SEC, video.duration);
+    const safeEnd = Math.min(endSec, safeStart + maxDurationSec, video.duration);
     const clipLen = safeEnd - safeStart;
 
     const mimeType = pickVideoMime();
@@ -476,8 +484,90 @@ export async function trimVideoBlob(
   }
 }
 
-export function videoNeedsTrim(durationSec: number | undefined): boolean {
-  return !!durationSec && durationSec > MAX_VIDEO_DURATION_SEC + 0.5;
+export function videoNeedsTrim(
+  durationSec: number | undefined,
+  maxDurationSec = MAX_VIDEO_DURATION_SEC,
+): boolean {
+  return !!durationSec && durationSec > maxDurationSec + 0.5;
+}
+
+function computeStoryVideoOutputSize(stageWidth: number, stageHeight: number): { outW: number; outH: number } {
+  const aspect = stageWidth / Math.max(1, stageHeight);
+  const outH = 1280;
+  const outW = Math.max(240, Math.round(outH * aspect));
+  return { outW, outH };
+}
+
+/** Re-encode a story video clip with a custom canvas draw (pan/zoom/rotate preview). */
+export async function encodeStoryVideoBlob(
+  blob: Blob,
+  stageWidth: number,
+  stageHeight: number,
+  drawFrame: (ctx: CanvasRenderingContext2D, video: HTMLVideoElement, outW: number, outH: number) => void,
+  options?: {
+    startSec?: number;
+    endSec?: number;
+    maxBytes?: number;
+  },
+): Promise<Blob> {
+  const maxBytes = options?.maxBytes ?? CHAT_MAX_VIDEO_BYTES;
+  const url = URL.createObjectURL(blob);
+  const video = document.createElement('video');
+  video.playsInline = true;
+  video.muted = true;
+  video.preload = 'auto';
+  video.src = url;
+
+  try {
+    await waitEvent(video, 'loadedmetadata');
+    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+      throw new Error('영상 정보를 확인할 수 없어요.');
+    }
+
+    const startSec = Math.max(0, options?.startSec ?? 0);
+    const endSec = Math.min(options?.endSec ?? video.duration, video.duration);
+    const clipLen = endSec - startSec;
+    if (clipLen <= 0.2) throw new Error('업로드할 구간이 없어요.');
+
+    const { outW, outH } = computeStoryVideoOutputSize(stageWidth, stageHeight);
+    const mimeType = pickVideoMime();
+    if (!mimeType) throw new Error('이 브라우저에서는 영상 처리를 지원하지 않아요.');
+
+    await seekVideo(video, startSec);
+    const settings = { ...videoCompressSettings('feed'), maxBytes };
+    const videoBitsPerSecond = computeVideoBitrate(clipLen, settings);
+
+    const session = createVideoRecordSession(video, outW, outH, (ctx) => {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, outW, outH);
+      drawFrame(ctx, video, outW, outH);
+    });
+
+    try {
+      await video.play();
+      if (video.paused) {
+        throw new Error('영상 재생을 시작하지 못했어요. 다시 시도해주세요.');
+      }
+      const encoded = await recordStreamToBlob(
+        session.stream,
+        mimeType,
+        videoBitsPerSecond,
+        () => video.currentTime >= endSec || video.ended,
+        Math.ceil(clipLen * 1000) + 2500,
+        settings.audioBitrate,
+      );
+      video.pause();
+      if (encoded.size <= maxBytes) return encoded;
+      return compressVideoBlob(encoded, maxBytes);
+    } finally {
+      session.stopDraw();
+      session.stream.getTracks().forEach((track) => track.stop());
+      session.close();
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+    video.src = '';
+  }
 }
 
 export async function cropVideoToFrameBlob(

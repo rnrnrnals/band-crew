@@ -17,12 +17,28 @@ type DbHighlightItem = {
   id: string;
   highlight_id: string;
   image_url: string;
+  media_type?: string | null;
   caption: string;
   source_story_id: string | null;
   sort_order: number;
 };
 
-async function deleteOrphanHighlightImageUrls(
+export async function fetchHighlightedStoryIds(supabase: SupabaseClient): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from(DB_TABLES.highlightItems)
+    .select('source_story_id')
+    .not('source_story_id', 'is', null);
+  if (error) throw error;
+  const ids = new Set<string>();
+  for (const row of data ?? []) {
+    const id = row.source_story_id as string | null;
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+/** Delete storage URLs only when no story, highlight item, or highlight cover still references them. */
+export async function deleteOrphanHighlightImageUrls(
   supabase: SupabaseClient,
   urls: string[],
 ): Promise<void> {
@@ -47,6 +63,15 @@ async function deleteOrphanHighlightImageUrls(
   if (itemError) throw itemError;
   for (const row of itemRows ?? []) {
     if (row.image_url) stillUsed.add(row.image_url as string);
+  }
+
+  const { data: coverRows, error: coverError } = await supabase
+    .from(DB_TABLES.highlights)
+    .select('cover_image_url')
+    .in('cover_image_url', unique);
+  if (coverError) throw coverError;
+  for (const row of coverRows ?? []) {
+    if (row.cover_image_url) stillUsed.add(row.cover_image_url as string);
   }
 
   const deletable = unique.filter((url) => !stillUsed.has(url));
@@ -93,6 +118,7 @@ function storiesToItems(storyIds: string[], stories: Story[]): HighlightItem[] {
     .map((story) => ({
       id: `pending-${story!.id}`,
       image: story!.image,
+      mediaType: story!.mediaType ?? 'image',
       caption: story!.caption,
       sourceStoryId: story!.id,
     }));
@@ -127,6 +153,7 @@ export async function createHighlightInDb(
       items.map((item, index) => ({
         highlight_id: highlight.id,
         image_url: item.image,
+        media_type: item.mediaType ?? 'image',
         caption: item.caption,
         source_story_id: item.sourceStoryId ?? null,
         sort_order: index,
@@ -185,6 +212,7 @@ export async function updateHighlightInDb(
       items.map((item, index) => ({
         highlight_id: highlightId,
         image_url: item.image,
+        media_type: item.mediaType ?? 'image',
         caption: item.caption,
         source_story_id: item.sourceStoryId ?? null,
         sort_order: index,
@@ -261,6 +289,7 @@ export async function appendHighlightStoriesInDb(
     items.map((item, index) => ({
       highlight_id: highlightId,
       image_url: item.image,
+      media_type: item.mediaType ?? 'image',
       caption: item.caption,
       source_story_id: item.sourceStoryId ?? null,
       sort_order: startOrder + index,

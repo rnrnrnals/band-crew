@@ -2,7 +2,7 @@ import type { AppUser, BandTeam, PositionId } from '../types';
 import { DEMO_JOIN_CODE } from '../mock/data';
 import { DB_TABLES } from '../lib/databaseTables';
 import { requireSupabase } from '../lib/supabase';
-import { deleteReplacedStorageUrl, deleteTeamStorage } from './storageService';
+import { deleteReplacedStorageUrl, deleteTeamStorage, isStoragePublicUrl } from './storageService';
 import {
   mapTeam,
   type DbTeam,
@@ -14,6 +14,11 @@ import { INSTAGRAM_COLUMN_MISSING_MESSAGE, isMissingInstagramColumnError } from 
 
 const DEFAULT_COVER = '';
 const TEAM_NAME_TAKEN_MESSAGE = '이미 사용 중인 팀 이름이에요.';
+
+function persistedAvatarUrl(user: AppUser): string {
+  const avatar = user.avatar?.trim() ?? '';
+  return isStoragePublicUrl(avatar) ? avatar : '';
+}
 
 export function normalizeTeamName(name: string): string {
   return name.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ko-KR');
@@ -89,7 +94,7 @@ async function ensureUserProfileInDb(userId: string, user: AppUser): Promise<voi
   const { error: insertError } = await supabase.from(DB_TABLES.profiles).insert({
     id: userId,
     display_name: user.name.trim() || 'User',
-    avatar_url: user.avatar ?? '',
+    avatar_url: persistedAvatarUrl(user),
     bio: user.bio ?? '',
   });
 
@@ -218,7 +223,7 @@ async function createTeamInDbDirect(
       user_id: userId,
       nick: nick.trim(),
       position,
-      avatar_url: user.avatar,
+      avatar_url: persistedAvatarUrl(user),
       bio: user.bio ?? '',
       is_leader: true,
     })
@@ -263,7 +268,7 @@ export async function createTeamInDb(
     p_genre: genre.trim() || '장르 미정',
     p_nick: nick.trim(),
     p_position: position,
-    p_avatar_url: user.avatar ?? '',
+    p_avatar_url: persistedAvatarUrl(user),
     p_bio: user.bio ?? '',
   });
 
@@ -342,7 +347,7 @@ export async function joinTeamInDb(
       user_id: userId,
       nick: nick.trim(),
       position,
-      avatar_url: user.avatar,
+      avatar_url: persistedAvatarUrl(user),
       bio: user.bio ?? '',
       is_leader: false,
     });

@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import type { Story } from '../../types';
 import { useApp } from '../../state/AppContext';
 import { formatRelativeTime } from '../../utils/timeUtils';
 import { markStorySeen } from '../../utils/storySeenStorage';
+import { STORY_MAX_VIDEO_DURATION_SEC, storyMediaType } from '../../utils/storyUtils';
 import { ProfileAvatar } from '../../components/ProfileAvatar';
+import { StorySlideMedia } from './StorySlideMedia';
 import './StoryViewer.css';
+
+const IMAGE_SLIDE_MS = 4000;
 
 function buildPlaylist(
   stories: Story[],
@@ -59,6 +63,7 @@ export function StoryViewer({
   const [teamIdx, setTeamIdx] = useState(initial.teamIdx);
   const [storyIdx, setStoryIdx] = useState(initial.storyIdx);
   const [now, setNow] = useState(() => Date.now());
+  const [slideDurationSec, setSlideDurationSec] = useState(IMAGE_SLIDE_MS / 1000);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -69,28 +74,14 @@ export function StoryViewer({
   const teamStories = bundle?.stories ?? [];
   const story = teamStories[storyIdx];
   const team = story ? getTeam(story.teamId) : undefined;
+  const mediaType = story ? storyMediaType(story) : 'image';
 
   useEffect(() => {
     if (!story) return;
     markStorySeen(story.id);
   }, [story?.id]);
 
-  useEffect(() => {
-    if (!story) return;
-    const t = setTimeout(() => {
-      if (storyIdx < teamStories.length - 1) {
-        setStoryIdx((i) => i + 1);
-      } else if (teamIdx < playlist.length - 1) {
-        setTeamIdx((ti) => ti + 1);
-        setStoryIdx(0);
-      } else {
-        onClose();
-      }
-    }, 4000);
-    return () => clearTimeout(t);
-  }, [teamIdx, storyIdx, story, teamStories.length, playlist.length, onClose]);
-
-  const goNext = () => {
+  const goNext = useCallback(() => {
     if (storyIdx < teamStories.length - 1) {
       setStoryIdx((i) => i + 1);
       return;
@@ -101,7 +92,23 @@ export function StoryViewer({
       return;
     }
     onClose();
-  };
+  }, [storyIdx, teamStories.length, teamIdx, playlist.length, onClose]);
+
+  useEffect(() => {
+    if (!story || mediaType !== 'image') return;
+    setSlideDurationSec(IMAGE_SLIDE_MS / 1000);
+    const t = window.setTimeout(goNext, IMAGE_SLIDE_MS);
+    return () => window.clearTimeout(t);
+  }, [teamIdx, storyIdx, story, mediaType, goNext]);
+
+  useEffect(() => {
+    if (!story || mediaType !== 'video') return;
+    setSlideDurationSec(STORY_MAX_VIDEO_DURATION_SEC);
+  }, [story?.id, mediaType]);
+
+  const handleVideoDuration = useCallback((seconds: number) => {
+    setSlideDurationSec(Math.min(seconds, STORY_MAX_VIDEO_DURATION_SEC));
+  }, []);
 
   const goPrev = () => {
     if (storyIdx > 0) {
@@ -131,6 +138,11 @@ export function StoryViewer({
             <div
               key={s.id}
               className={`bar ${i < storyIdx ? 'done' : ''} ${i === storyIdx ? 'active' : ''}`}
+              style={
+                i === storyIdx
+                  ? ({ '--story-duration': `${slideDurationSec}s` } as CSSProperties)
+                  : undefined
+              }
             >
               <div className="bar-fill" />
             </div>
@@ -151,7 +163,13 @@ export function StoryViewer({
             ✕
           </button>
         </div>
-        <img className="story-media" src={story.image} alt="" />
+        <StorySlideMedia
+          key={story.id}
+          src={story.image}
+          mediaType={mediaType}
+          onVideoEnded={goNext}
+          onVideoDuration={handleVideoDuration}
+        />
         <button type="button" className="story-nav prev" onClick={goPrev} aria-label="이전" />
         <button type="button" className="story-nav next" onClick={goNext} aria-label="다음" />
       </div>

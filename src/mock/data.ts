@@ -376,6 +376,14 @@ export const INITIAL_SESSIONS: PracticeSessionMeta[] = [
     bpm: 110,
     updatedAt: '2026-07-15T19:00:00',
   },
+  {
+    id: 'ps3',
+    teamId: 't-night',
+    title: '신곡 드래프트 — Chorus',
+    bpm: 128,
+    updatedAt: '2026-07-16T18:00:00',
+    isPublic: true,
+  },
 ];
 
 export const INITIAL_TEAM_PRACTICE_SONGS: TeamPracticeSong[] = [

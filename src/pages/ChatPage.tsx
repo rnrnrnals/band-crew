@@ -317,7 +317,9 @@ function ChatRoom({ peerTeamId, peerTeam }: ChatRoomProps) {
     setTrimVideo({ file, fileName });
   };
 
-  const handleTrimConfirm = (trimmed: Blob) => {
+  const handleTrimConfirm = (result: Blob | import('../features/media/VideoTrimSheet').VideoClipSelection) => {
+    if (!(result instanceof Blob)) return;
+    const trimmed = result;
     const after = trimAfterRef.current;
     setTrimVideo(null);
     if (after === 'send') {

@@ -48,7 +48,7 @@
   background: var(--story-ring-seen);
 }
 
-.story-ring-avatar,
+.story-ring-avatar:not(.profile-avatar-empty),
 .story-ring img {
   width: 100%;
   height: 100%;
@@ -59,7 +59,10 @@
 }
 
 .story-ring-avatar.profile-avatar-empty {
-  border-color: var(--hairline);
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 3px solid var(--hairline);
   background: var(--surface-raised);
 }
 
