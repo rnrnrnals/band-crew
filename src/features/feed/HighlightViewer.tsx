@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import type { BandTeam, TeamHighlight } from '../../types';
 import { useApp } from '../../state/AppContext';
+import { highlightItemMediaType, STORY_MAX_VIDEO_DURATION_SEC } from '../../utils/storyUtils';
 import { ProfileAvatar } from '../../components/ProfileAvatar';
+import { StorySlideMedia } from './StorySlideMedia';
 import './StoryViewer.css';
+
+const IMAGE_SLIDE_MS = 4000;
 
 interface HighlightViewerProps {
   highlight: TeamHighlight;
@@ -17,29 +21,35 @@ interface HighlightViewerProps {
 export function HighlightViewer({ highlight, team, canEdit, onClose, onEdit, onAppend }: HighlightViewerProps) {
   const { myTeamIds } = useApp();
   const [itemIdx, setItemIdx] = useState(0);
+  const [slideDurationSec, setSlideDurationSec] = useState(IMAGE_SLIDE_MS / 1000);
   const items = highlight.items;
   const item = items[itemIdx];
   const teamFeedPath = myTeamIds.includes(team.id) ? '/my' : `/team/${team.id}`;
+  const mediaType = item ? highlightItemMediaType(item) : 'image';
 
-  useEffect(() => {
-    if (!item) return;
-    const t = window.setTimeout(() => {
-      if (itemIdx < items.length - 1) {
-        setItemIdx((i) => i + 1);
-      } else {
-        onClose();
-      }
-    }, 4000);
-    return () => window.clearTimeout(t);
-  }, [itemIdx, item, items.length, onClose]);
-
-  const goNext = () => {
+  const goNext = useCallback(() => {
     if (itemIdx < items.length - 1) {
       setItemIdx((i) => i + 1);
       return;
     }
     onClose();
-  };
+  }, [itemIdx, items.length, onClose]);
+
+  useEffect(() => {
+    if (!item || mediaType !== 'image') return;
+    setSlideDurationSec(IMAGE_SLIDE_MS / 1000);
+    const t = window.setTimeout(goNext, IMAGE_SLIDE_MS);
+    return () => window.clearTimeout(t);
+  }, [itemIdx, item, mediaType, goNext]);
+
+  useEffect(() => {
+    if (!item || mediaType !== 'video') return;
+    setSlideDurationSec(STORY_MAX_VIDEO_DURATION_SEC);
+  }, [item?.id, mediaType]);
+
+  const handleVideoDuration = useCallback((seconds: number) => {
+    setSlideDurationSec(Math.min(seconds, STORY_MAX_VIDEO_DURATION_SEC));
+  }, []);
 
   const goPrev = () => {
     if (itemIdx > 0) {
@@ -59,6 +69,11 @@ export function HighlightViewer({ highlight, team, canEdit, onClose, onEdit, onA
             <div
               key={entry.id}
               className={`bar ${i < itemIdx ? 'done' : ''} ${i === itemIdx ? 'active' : ''}`}
+              style={
+                i === itemIdx
+                  ? ({ '--story-duration': `${slideDurationSec}s` } as CSSProperties)
+                  : undefined
+              }
             >
               <div className="bar-fill" />
             </div>
@@ -90,7 +105,13 @@ export function HighlightViewer({ highlight, team, canEdit, onClose, onEdit, onA
             </button>
           )}
         </div>
-        <img className="story-media" src={item.image} alt="" />
+        <StorySlideMedia
+          key={item.id}
+          src={item.image}
+          mediaType={mediaType}
+          onVideoEnded={goNext}
+          onVideoDuration={handleVideoDuration}
+        />
         <button type="button" className="story-nav prev" onClick={goPrev} aria-label="이전" />
         <button type="button" className="story-nav next" onClick={goNext} aria-label="다음" />
       </div>

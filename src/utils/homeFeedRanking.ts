@@ -38,9 +38,19 @@ function itemMeta(item: HomeFeedItem): {
   };
 }
 
+function stableItemRandom(item: HomeFeedItem, seed: number): number {
+  let h = seed >>> 0;
+  const s = `${item.kind}:${item.id}`;
+  for (let i = 0; i < s.length; i += 1) {
+    h = Math.imul(31, h) + s.charCodeAt(i);
+    h >>>= 0;
+  }
+  return (h % 10_000) / 10_000;
+}
+
 export function scoreHomeFeedItem(item: HomeFeedItem, ctx: FeedRankContext): number {
   const now = ctx.now ?? Date.now();
-  const rand = ctx.random?.() ?? Math.random();
+  const rand = ctx.random?.() ?? stableItemRandom(item, now);
   const { teamId, likes, commentCount, seenKey } = itemMeta(item);
 
   const isFollowing = ctx.followingIds.includes(teamId);

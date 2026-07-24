@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -50,6 +51,10 @@ import {
 } from '../../services/practiceTracksService';
 import { isStoragePublicUrl } from '../../services/storageService';
 import { ensureVideoFileType } from '../../utils/videoMediaUtils';
+import { PracticeSessionComments } from './PracticeSessionComments';
+import { PracticeTrackSocial } from './PracticeTrackSocial';
+import './PracticeSessionComments.css';
+import './PracticeTrackSocial.css';
 import './PracticeRoom.css';
 
 interface PendingPos {
@@ -63,6 +68,7 @@ interface Props {
   session: PracticeSessionMeta;
   teamName: string;
   onBack: () => void;
+  readOnly?: boolean;
 }
 
 function isVideoFile(file: File): boolean {
@@ -177,11 +183,13 @@ function revokeBlobUrl(url: string) {
   if (url.startsWith('blob:')) URL.revokeObjectURL(url);
 }
 
-export function PracticeRoom({ session, teamName, onBack }: Props) {
-  const { session: authSession } = useAuth();
-  const { isOwnPracticeSession, deleteSession, user, activeTeam } = useApp();
+export function PracticeRoom({ session, teamName, onBack, readOnly = false }: Props) {
+  const { session: authSession, authLoading } = useAuth();
+  const { isOwnPracticeSession, deleteSession, user, activeTeam, loadPracticeTrackSocial } = useApp();
   const useDb = isSupabaseConfigured && !!authSession;
-  const canDeleteSession = isOwnPracticeSession(session);
+  const canDeleteSession = !readOnly && isOwnPracticeSession(session);
+  const canEditTracks = !readOnly;
+  const showPublicSocial = readOnly || session.isPublic === true;
   const [tracksLoading, setTracksLoading] = useState(() => isSupabaseConfigured);
   const syncedRef = useRef<Map<number, StoredPracticeTrack>>(new Map());
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -291,6 +299,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
 
   const persistTracks = useCallback(
     (next: JamTrack[]) => {
+      if (readOnly) return;
       tracksRef.current = next;
       const stored = next.map(toStoredTrack);
       if (!useDb) {
@@ -389,7 +398,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
       syncTimerRef.current = setTimeout(runSync, 400);
     },
-    [session, useDb, markOwnTrack, reportMediaJob, clearMediaJob],
+    [session, useDb, markOwnTrack, reportMediaJob, clearMediaJob, readOnly],
   );
 
   useEffect(() => {
@@ -434,6 +443,23 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       cancelled = true;
     };
   }, [useDb, session.id, authSession?.user.id, markOwnTrack]);
+
+  const trackSocialKeys = useMemo(
+    () =>
+      [...tracks]
+        .map((track) => track.id)
+        .sort((a, b) => a - b)
+        .join(','),
+    [tracks],
+  );
+
+  useEffect(() => {
+    if (!showPublicSocial || !trackSocialKeys || authLoading || !authSession?.user?.id) return;
+    const trackKeys = trackSocialKeys.split(',').map((value) => Number(value));
+    void loadPracticeTrackSocial(session.id, trackKeys).catch((err) =>
+      console.error('[BandCrew] practice track social load failed', err),
+    );
+  }, [showPublicSocial, session.id, trackSocialKeys, loadPracticeTrackSocial, authLoading, authSession?.user?.id]);
 
   /**
    * Local (no-auth) mode persists tracks with a `blob:` URL, which is dead
@@ -503,9 +529,9 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   }, []);
 
   useEffect(() => {
-    if (tracksLoading || !tracksHydratedRef.current) return;
+    if (readOnly || tracksLoading || !tracksHydratedRef.current) return;
     persistTracks(tracks);
-  }, [tracks, persistTracks, tracksLoading]);
+  }, [readOnly, tracks, persistTracks, tracksLoading]);
 
   const maxDur = useCallback(() => mixSessionDurationSec(tracks), [tracks]);
 
@@ -978,10 +1004,10 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
 
   if (tracksLoading) {
     return (
-      <div className="practice-room page">
+      <div className={`practice-room page${readOnly ? ' practice-room--readonly' : ''}${showPublicSocial ? ' practice-room--with-social' : ''}`}>
       <header className="pr-head">
         <button type="button" className="back" onClick={onBack}>
-          ← 세션
+          ← {readOnly ? '목록' : '세션'}
         </button>
         <div className="pr-head-info">
           <strong>{session.title}</strong>
@@ -1001,10 +1027,10 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
   const isTransporting = mixPlaying || soloId != null;
 
   return (
-    <div className={`practice-room page${isTransporting ? ' is-transporting' : ''}`}>
+    <div className={`practice-room page${isTransporting ? ' is-transporting' : ''}${readOnly ? ' practice-room--readonly' : ''}${showPublicSocial ? ' practice-room--with-social' : ''}`}>
       <header className="pr-head">
         <button type="button" className="back" onClick={onBack}>
-          ← 세션
+          ← {readOnly ? '목록' : '세션'}
         </button>
         <div className="pr-head-info">
           <strong>{session.title}</strong>
@@ -1017,24 +1043,33 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         )}
       </header>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="file-input-hidden"
-        onChange={(e) => void handleFilePick(e)}
-      />
+      {!readOnly ? (
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="file-input-hidden"
+          onChange={(e) => void handleFilePick(e)}
+        />
+      ) : null}
 
       <div className="transport">
-        <button
-          type="button"
-          className="upload-btn"
-          disabled={!!recordPreview || previewLoading}
-          onClick={openPos}
-        >
-          +
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            className="upload-btn"
+            disabled={!!recordPreview || previewLoading}
+            onClick={openPos}
+          >
+            +
+          </button>
+        ) : null}
         <div className="transport-info">
-          {mediaJob ? (
+          {readOnly ? (
+            <>
+              <div className="transport-label">공개 세션 듣기</div>
+              <div className="transport-sub">전체 재생 · 트랙별 solo · 볼륨 조절만 가능해요</div>
+            </>
+          ) : mediaJob ? (
             <MediaProgressPanel
               label={mediaJob.label}
               progress={mediaJob.progress}
@@ -1066,10 +1101,18 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                 key={t.id}
                 type="button"
                 className={`video-tile ${trackVolume(t) === 0 ? 'is-silent' : ''} ${broken ? 'is-broken' : ''}`}
-                onClick={() => (broken ? deleteTrack(t.id) : openVideoViewer(t.id))}
+                onClick={() => {
+                  if (broken) {
+                    if (canEditTracks) deleteTrack(t.id);
+                    return;
+                  }
+                  openVideoViewer(t.id);
+                }}
                 aria-label={
                   broken
-                    ? `${t.positionLabel} ${t.name} 재생 불가 — 삭제`
+                    ? canEditTracks
+                      ? `${t.positionLabel} ${t.name} 재생 불가 — 삭제`
+                      : `${t.positionLabel} ${t.name} 재생 불가`
                     : `${t.positionLabel} ${t.name} 동영상 보기`
                 }
               >
@@ -1108,7 +1151,9 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
       )}
 
       {tracks.length === 0 && (
-        <div className="empty-hint">+ 눌러 첫 동영상 트랙을 올리세요.</div>
+        <div className="empty-hint">
+          {readOnly ? '아직 올라온 트랙이 없어요.' : '+ 눌러 첫 동영상 트랙을 올리세요.'}
+        </div>
       )}
 
       {tracks.map((t) => {
@@ -1157,7 +1202,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                   {t.kind === 'video' ? ' · VIDEO' : ''}
                 </span>
                 <span className="track-name">{t.name}</span>
-                {isOwnTrack(t) && (
+                {canEditTracks && isOwnTrack(t) && (
                   <button
                     type="button"
                     className="track-delete"
@@ -1168,7 +1213,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                   </button>
                 )}
               </div>
-              {isOwnTrack(t) && (
+              {canEditTracks && isOwnTrack(t) && (
                 <div className="sync-nudge" title="재생 타이밍 미세 조절">
                   <button
                     type="button"
@@ -1223,11 +1268,11 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
               )}
               <button
                 type="button"
-                className={`waveform ${mixPlaying || soloId === t.id ? 'is-playing' : ''}${isOwnTrack(t) ? ' waveform--tap' : ''}`}
+                className={`waveform ${mixPlaying || soloId === t.id ? 'is-playing' : ''}${canEditTracks && isOwnTrack(t) ? ' waveform--tap' : ''}`}
                 onClick={() => {
-                  if (isOwnTrack(t)) setTrimTrackId(t.id);
+                  if (canEditTracks && isOwnTrack(t)) setTrimTrackId(t.id);
                 }}
-                title={isOwnTrack(t) ? '탭하여 앞뒤 구간 자르기' : undefined}
+                title={canEditTracks && isOwnTrack(t) ? '탭하여 앞뒤 구간 자르기' : undefined}
               >
                 <div
                   className="waveform-clip"
@@ -1244,6 +1289,13 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
                 </div>
                 <div className="playhead" style={{ left: `${playheadLeft}%` }} />
               </button>
+              {showPublicSocial ? (
+                <PracticeTrackSocial
+                  sessionId={session.id}
+                  sessionTeamId={session.teamId}
+                  trackKey={t.id}
+                />
+              ) : null}
             </div>
             <div className="track-actions">
               <label className="volume-control" title="볼륨 (0 = 음소거)">
@@ -1273,7 +1325,11 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
 
       {status && <p className="status-line">{status}</p>}
 
-      {cropTarget ? (
+      {showPublicSocial ? (
+        <PracticeSessionComments sessionId={session.id} sessionTeamId={session.teamId} />
+      ) : null}
+
+      {!readOnly && cropTarget ? (
         <VideoCropSheet
           file={cropTarget.file}
           fileName={cropTarget.file.name}
@@ -1292,7 +1348,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         />
       ) : null}
 
-      {recordPreview ? (
+      {!readOnly && recordPreview ? (
         <RecordPreviewSheet
           preview={recordPreview}
           onConfirm={confirmRecordPreview}
@@ -1300,7 +1356,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         />
       ) : null}
 
-      {trimTrack ? (
+      {canEditTracks && trimTrack ? (
         <WaveformTrimSheet
           track={trimTrack}
           onClose={() => setTrimTrackId(null)}
@@ -1310,7 +1366,7 @@ export function PracticeRoom({ session, teamName, onBack }: Props) {
         />
       ) : null}
 
-      {posOpen && (
+      {!readOnly && posOpen && (
         <div className="pos-overlay open" onClick={() => setPosOpen(false)}>
           <div className="pos-sheet" onClick={(e) => e.stopPropagation()}>
             <h2>포지션 · 동영상</h2>

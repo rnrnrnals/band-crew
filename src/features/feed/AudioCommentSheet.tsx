@@ -20,7 +20,6 @@ export function AudioCommentSheet({ trackId, onClose, onTimestampClick }: AudioC
   const {
     teamAudios,
     addAudioComment,
-    updateAudioComment,
     deleteAudioComment,
     toggleAudioCommentLike,
     user,
@@ -31,8 +30,6 @@ export function AudioCommentSheet({ trackId, onClose, onTimestampClick }: AudioC
   const track = teamAudios.find((t) => t.id === trackId);
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<PostComment | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editText, setEditText] = useState('');
 
   if (!track) return null;
 
@@ -49,27 +46,9 @@ export function AudioCommentSheet({ trackId, onClose, onTimestampClick }: AudioC
     setReplyTo(null);
   };
 
-  const startEdit = (commentId: string, currentText: string) => {
-    setReplyTo(null);
-    setEditingId(commentId);
-    setEditText(currentText);
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditText('');
-  };
-
-  const saveEdit = () => {
-    if (!editingId || !editText.trim()) return;
-    updateAudioComment(trackId, editingId, editText);
-    cancelEdit();
-  };
-
   const handleDeleteComment = async (commentId: string) => {
     if (!(await confirm('삭제하시겠습니까?'))) return;
     deleteAudioComment(trackId, commentId);
-    if (editingId === commentId) cancelEdit();
   };
 
   return (
@@ -90,29 +69,25 @@ export function AudioCommentSheet({ trackId, onClose, onTimestampClick }: AudioC
 
         <ul className="comment-sheet-list">
           {comments.length > 0 ? (
-            comments.map((c) => (
-              <CommentSheetItem
-                key={c.id}
-                comment={c}
-                isReply={!!c.parentId}
-                mine={isOwnComment(c, user.id, myNick, activeTeam?.name)}
-                editing={editingId === c.id}
-                editText={editText}
-                onEditTextChange={setEditText}
-                onSaveEdit={saveEdit}
-                onCancelEdit={cancelEdit}
-                onStartEdit={() => startEdit(c.id, c.text)}
-                onDelete={() => void handleDeleteComment(c.id)}
-                onToggleLike={() => toggleAudioCommentLike(trackId, c.id)}
-                onReply={() => {
-                  cancelEdit();
-                  setReplyTo(c);
-                }}
-                textContent={<CommentTimestampText text={c.text} onTimestampClick={onTimestampClick} />}
-                contextTeam={trackTeam}
-                onAuthorNavigate={onClose}
-              />
-            ))
+            comments.map((c) => {
+              const parent = c.parentId ? comments.find((item) => item.id === c.parentId) : undefined;
+              return (
+                <CommentSheetItem
+                  key={c.id}
+                  comment={c}
+                  isReply={!!c.parentId}
+                  replyToLabel={parent ? getCommentReplyLabel(parent, trackTeam, true) : undefined}
+                  mine={isOwnComment(c, user.id, myNick, activeTeam?.name)}
+                  onDelete={() => void handleDeleteComment(c.id)}
+                  onToggleLike={() => toggleAudioCommentLike(trackId, c.id)}
+                  onReply={() => setReplyTo(c)}
+                  textContent={<CommentTimestampText text={c.text} onTimestampClick={onTimestampClick} />}
+                  contextTeam={trackTeam}
+                  highlightPostTeam
+                  onAuthorNavigate={onClose}
+                />
+              );
+            })
           ) : (
             <li className="comment-sheet-empty">아직 댓글이 없어요. 첫 댓글을 남겨보세요!</li>
           )}
@@ -120,7 +95,7 @@ export function AudioCommentSheet({ trackId, onClose, onTimestampClick }: AudioC
 
         {replyTo ? (
           <div className="comment-sheet-reply-banner">
-            <span>{getCommentReplyLabel(replyTo)}에게 답글</span>
+            <span>{getCommentReplyLabel(replyTo, trackTeam, true)}에게 답글</span>
             <button type="button" className="comment-sheet-reply-cancel" onClick={() => setReplyTo(null)}>
               취소
             </button>

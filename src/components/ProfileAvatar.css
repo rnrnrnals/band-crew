@@ -6,7 +6,8 @@
   object-position: center;
 }
 
-.profile-avatar-empty {
+.profile-avatar-empty,
+span.profile-avatar.profile-avatar-empty {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -17,9 +18,12 @@
 
 .profile-avatar-icon {
   display: block;
-  width: 52%;
-  height: 52%;
+  width: 56%;
+  height: 56%;
+  flex-shrink: 0;
   opacity: 0.55;
+  /* Material person glyph sits slightly high in its viewBox — nudge for optical center. */
+  transform: translateY(5%);
 }
 
 .profile-avatar-square.profile-avatar-empty,

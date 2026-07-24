@@ -1,3 +1,5 @@
+import type { StoryTextStyle } from './storyTextStyle';
+
 export type StoryImageTransform = {
   scale: number;
   rotation: number;
@@ -9,6 +11,7 @@ export type StoryTextOverlay = {
   text: string;
   x: number;
   y: number;
+  style?: StoryTextStyle;
 };
 
 export const DEFAULT_IMAGE_TRANSFORM: StoryImageTransform = {

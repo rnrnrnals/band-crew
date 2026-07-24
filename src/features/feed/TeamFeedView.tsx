@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import type { BandTeam, Post } from '../../types';
 import { useApp } from '../../state/AppContext';
 import { isTeamStoriesFullySeen, useStorySeen } from '../../utils/storySeenStorage';
@@ -15,6 +15,7 @@ import { StoryViewer } from './StoryViewer';
 import { TeamAudioPanel, type MixedFeedItem } from './TeamAudioPanel';
 import { SoundDetailSheet } from './SoundDetailSheet';
 import { TeamPracticeSheet } from './TeamPracticeSheet';
+import { TeamPublicPracticeSheet } from './TeamPublicPracticeSheet';
 import { ProfileAvatar } from '../../components/ProfileAvatar';
 import { posterUrlForVideo } from '../../utils/videoMediaUtils';
 import './TeamFeedView.css';
@@ -45,11 +46,14 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
     addTeamAudio,
     teamPracticeSongs,
     loadTeamPracticeSongs,
+    loadTeamFollowing,
     canManageTeam,
   } = useApp();
   const storySeen = useStorySeen();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [openList, setOpenList] = useState<ListKind | null>(null);
   const [practiceOpen, setPracticeOpen] = useState(false);
+  const [publicPracticeOpen, setPublicPracticeOpen] = useState(() => Boolean(searchParams.get('practiceSession')));
   const [feedTab, setFeedTab] = useState<FeedTab>('all');
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [selectedSoundId, setSelectedSoundId] = useState<string | null>(null);
@@ -82,6 +86,30 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
   useEffect(() => {
     void loadTeamPracticeSongs(team.id);
   }, [team.id, loadTeamPracticeSongs]);
+
+  useEffect(() => {
+    void loadTeamFollowing(team.id);
+  }, [team.id, loadTeamFollowing]);
+
+  useEffect(() => {
+    if (searchParams.get('practiceSession')) {
+      setPublicPracticeOpen(true);
+    }
+  }, [searchParams]);
+
+  const closePublicPractice = () => {
+    setPublicPracticeOpen(false);
+    if (searchParams.get('practiceSession')) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('practiceSession');
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  };
 
   const teamPosts = useMemo(
     () =>
@@ -282,7 +310,7 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
         <p className="tf-bio">{team.bio}</p>
       </div>
 
-      <div className="tf-actions">
+      <div className={`tf-actions${variant === 'other' ? ' tf-actions-three' : ''}`}>
         {canManage ? (
           <>
             <Link to="/my/team-profile" className="btn tf-settings-btn">
@@ -296,6 +324,13 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
           <>
             <button type="button" className="btn tf-members-btn" onClick={() => setOpenList('members')}>
               멤버 · {team.members.length}명
+            </button>
+            <button
+              type="button"
+              className="btn tf-practice-room-btn"
+              onClick={() => setPublicPracticeOpen(true)}
+            >
+              연습실
             </button>
             <button
               type="button"
@@ -453,6 +488,13 @@ export function TeamFeedView({ team, variant }: TeamFeedViewProps) {
           team={team}
           canEdit={canManage}
           onClose={() => setPracticeOpen(false)}
+        />
+      ) : null}
+      {publicPracticeOpen ? (
+        <TeamPublicPracticeSheet
+          team={team}
+          restoreSessionId={searchParams.get('practiceSession')}
+          onClose={closePublicPractice}
         />
       ) : null}
     </div>

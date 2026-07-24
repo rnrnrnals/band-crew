@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SquareImageCropSheet } from '../features/media/SquareImageCropSheet';
 import { useApp } from '../state/AppContext';
@@ -29,6 +29,13 @@ export function UserProfileEditPage() {
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setName(user.name);
+    setAvatar(user.avatar);
+    setBio(user.bio ?? '');
+    setInstagram(user.instagram ?? '');
+  }, [user.id, user.name, user.avatar, user.bio, user.instagram]);
 
   const onAvatarSelected = (file: File | undefined) => {
     if (!file) return;

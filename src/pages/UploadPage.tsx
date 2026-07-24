@@ -101,7 +101,9 @@ export function UploadPage() {
     applyVideoFile(normalized);
   };
 
-  const handleTrimConfirm = (trimmed: Blob) => {
+  const handleTrimConfirm = (result: Blob | import('../features/media/VideoTrimSheet').VideoClipSelection) => {
+    if (!(result instanceof Blob)) return;
+    const trimmed = result;
     if (!trimVideo) return;
     const base = trimVideo.name.replace(/\.[^.]+$/, '') || 'video';
     const ext = videoFileExtension(trimmed.type || 'video/mp4');

@@ -107,10 +107,12 @@
 .comment-like-btn--icon {
   flex-shrink: 0;
   margin-top: 2px;
-  font-size: 18px;
-  line-height: 1;
-  min-width: 28px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  min-width: 36px;
   text-align: center;
+  white-space: nowrap;
 }
 
 .comment-like-btn.is-liked {
@@ -133,8 +135,15 @@
   color: var(--text-faint);
 }
 
-.comment-reply-btn {
+.comment-sheet-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
   margin-top: 4px;
+}
+
+.comment-reply-btn {
   border: none;
   background: transparent;
   padding: 0;

@@ -49,7 +49,7 @@
 }
 
 .story-progress .bar.active .bar-fill {
-  animation: story-bar-fill 4s linear forwards;
+  animation: story-bar-fill var(--story-duration, 4s) linear forwards;
 }
 
 @keyframes story-bar-fill {
@@ -145,6 +145,10 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.story-media--video {
+  background: #000;
 }
 
 .story-nav {

@@ -1,0 +1,111 @@
+.pr-session-comments {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+}
+
+.pr-session-comments-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.pr-session-comments-error {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--red);
+}
+
+.pr-session-comments-empty {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.pr-session-comments-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.pr-session-comments-reply-banner {
+  margin-bottom: 10px;
+}
+
+.pr-session-comments-list .comment-sheet-item {
+  margin-bottom: 14px;
+}
+
+.pr-session-comments-item {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.pr-session-comments-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.pr-session-comments-line {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 2px;
+}
+
+.pr-session-comments-delete {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--red);
+  cursor: pointer;
+}
+
+.pr-session-comments-delete:active {
+  opacity: 0.75;
+}
+
+.pr-session-comments-text {
+  color: var(--text-muted);
+}
+
+.pr-session-comments-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--bg);
+  padding: 12px 0 calc(8px + env(safe-area-inset-bottom, 0px));
+}
+
+.pr-session-comments-form input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 14px;
+  background: var(--surface);
+}
+
+.pr-session-comments-form .btn {
+  flex-shrink: 0;
+  min-width: 56px;
+}
+
+.practice-room--readonly,
+.practice-room--with-social {
+  padding-bottom: 8px;
+}

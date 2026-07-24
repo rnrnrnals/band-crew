@@ -141,7 +141,7 @@ export function AudioFeedCard({
 
       {comments.slice(0, 2).map((c) => (
         <p key={c.id} className="feed-comment">
-          <CommentAuthor comment={c} layout="inline" contextTeam={team} /> {c.text}
+          <CommentAuthor comment={c} layout="inline" contextTeam={team} highlightPostTeam /> {c.text}
         </p>
       ))}
 

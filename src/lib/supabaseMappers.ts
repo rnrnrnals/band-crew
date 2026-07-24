@@ -13,6 +13,7 @@ import type {
   PracticeSessionMeta,
   TeamPracticeSong,
 } from '../types';
+import { sanitizeAvatarUrl } from '../mock/memberUtils';
 
 export interface DbTeam {
   id: string;
@@ -84,13 +85,25 @@ export interface DbAudioComment {
   created_at: string;
 }
 
+export interface DbPracticeSessionComment {
+  id: string;
+  session_id: string;
+  author_user_id: string;
+  author_team_id: string | null;
+  text: string;
+  parent_id?: string | null;
+  reply_to?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export function mapTeamMember(row: DbTeamMember): BandTeam['members'][number] {
   return {
     id: row.id,
     userId: row.user_id,
     nick: row.nick,
     position: row.position,
-    avatar: row.avatar_url || undefined,
+    avatar: sanitizeAvatarUrl(row.avatar_url) || undefined,
     bio: row.bio || undefined,
     instagram: row.instagram?.trim() || undefined,
     isLeader: row.is_leader,
@@ -170,6 +183,30 @@ export function mapAudioComment(
   return mapPostComment(row as unknown as DbPostComment, ctx);
 }
 
+export function mapPracticeSessionComment(
+  row: DbPracticeSessionComment,
+  ctx: {
+    authorTeamName?: string;
+    authorNick?: string;
+    likes?: number;
+    likedByMe?: boolean;
+  },
+): PostComment {
+  const crossTeam = !!row.author_team_id;
+  return {
+    id: row.id,
+    author: crossTeam ? (ctx.authorTeamName ?? ctx.authorNick ?? 'User') : (ctx.authorNick ?? 'User'),
+    authorUserId: row.author_user_id,
+    authorTeam: ctx.authorTeamName,
+    authorNick: crossTeam ? ctx.authorNick : undefined,
+    text: row.text,
+    parentId: row.parent_id ?? undefined,
+    replyTo: row.reply_to ?? undefined,
+    likes: ctx.likes ?? 0,
+    likedByMe: ctx.likedByMe ?? false,
+  };
+}
+
 export function mapAudioTrack(
   row: DbAudioTrack,
   comments: PostComment[],
@@ -196,6 +233,7 @@ export function mapStory(row: {
   id: string;
   team_id: string;
   image_url: string;
+  media_type?: string | null;
   caption: string;
   created_at: string;
 }): Story {
@@ -203,6 +241,7 @@ export function mapStory(row: {
     id: row.id,
     teamId: row.team_id,
     image: row.image_url,
+    mediaType: row.media_type === 'video' ? 'video' : 'image',
     caption: row.caption,
     createdAt: row.created_at,
   };
@@ -235,6 +274,7 @@ export function mapPractice(row: {
   bpm: number;
   updated_at: string;
   author_user_id?: string | null;
+  is_public?: boolean | null;
 }): PracticeSessionMeta {
   return {
     id: row.id,
@@ -243,6 +283,7 @@ export function mapPractice(row: {
     bpm: row.bpm,
     updatedAt: row.updated_at,
     authorUserId: row.author_user_id ?? undefined,
+    isPublic: row.is_public === true,
   };
 }
 
@@ -297,12 +338,14 @@ export function mapChat(row: {
 export function mapHighlightItem(row: {
   id: string;
   image_url: string;
+  media_type?: string | null;
   caption: string;
   source_story_id: string | null;
 }): HighlightItem {
   return {
     id: row.id,
     image: row.image_url,
+    mediaType: row.media_type === 'video' ? 'video' : 'image',
     caption: row.caption,
     sourceStoryId: row.source_story_id ?? undefined,
   };

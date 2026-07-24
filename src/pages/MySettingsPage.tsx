@@ -11,6 +11,7 @@ import { POSITION_LABELS } from '../mock/positions';
 import { findCurrentMember, getMemberAvatar, sortMembersWithLeaderFirst } from '../mock/memberUtils';
 
 import { ProfileAvatar } from '../components/ProfileAvatar';
+import { useConfirm } from '../components/ConfirmDialog';
 
 import { MemberProfileSheet } from '../features/feed/MemberProfileSheet';
 
@@ -49,6 +50,7 @@ export function MySettingsPage() {
   } = useApp();
 
   const { authRequired, signOut } = useAuth();
+  const confirm = useConfirm();
 
   const [positionOpen, setPositionOpen] = useState(false);
 
@@ -146,13 +148,22 @@ export function MySettingsPage() {
 
 
   const handleLeaveTeam = async () => {
-
     if (!activeTeam || leaving) return;
 
-    if (!confirm(`"${activeTeam.name}" 팀에서 나갈까요?`)) return;
+    if (
+      !(await confirm(
+        `"${activeTeam.name}" 팀에서 나갈까요?\n나가면 이 팀 연습실과 채팅에 접근할 수 없어요.`,
+        {
+          title: '팀 나가기',
+          confirmLabel: '나가기',
+          cancelLabel: '취소',
+        },
+      ))
+    ) {
+      return;
+    }
 
     setLeaving(true);
-
     setLeaveMsg('');
 
     const res = await leaveTeam(activeTeam.id);
@@ -162,11 +173,22 @@ export function MySettingsPage() {
     setLeaveMsg(res.message);
 
     if (res.ok) {
-
       window.setTimeout(() => setLeaveMsg(''), 2200);
+    }
+  };
 
+  const handleSignOut = async () => {
+    if (
+      !(await confirm('로그아웃할까요?', {
+        title: '로그아웃',
+        confirmLabel: '로그아웃',
+        cancelLabel: '취소',
+      }))
+    ) {
+      return;
     }
 
+    await signOut();
   };
 
 
@@ -401,7 +423,7 @@ export function MySettingsPage() {
           type="button"
           className="btn reset"
           onClick={() => {
-            void signOut();
+            void handleSignOut();
           }}
         >
           로그아웃

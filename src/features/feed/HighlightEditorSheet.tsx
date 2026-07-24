@@ -3,6 +3,7 @@ import type { TeamHighlight } from '../../types';
 import { useApp } from '../../state/AppContext';
 import { useConfirm } from '../../components/ConfirmDialog';
 import { getHighlightStoryId, isStoryInHighlight } from '../../utils/highlightUtils';
+import { isStoryActive } from '../../utils/storyUtils';
 import './HighlightEditorSheet.css';
 
 interface HighlightEditorSheetProps {
@@ -18,7 +19,7 @@ export function HighlightEditorSheet({
   mode = highlight ? 'edit' : 'create',
   onClose,
 }: HighlightEditorSheetProps) {
-  const { stories, createHighlight, updateHighlight, appendStoriesToHighlight, deleteHighlight } =
+  const { allStories, createHighlight, updateHighlight, appendStoriesToHighlight, deleteHighlight } =
     useApp();
   const confirm = useConfirm();
   const [title, setTitle] = useState(highlight?.title ?? '');
@@ -26,16 +27,16 @@ export function HighlightEditorSheet({
     if (!highlight || mode === 'append') return [];
     return highlight.items
       .map((item) => getHighlightStoryId(item))
-      .filter((id): id is string => !!id && stories.some((s) => s.id === id));
+      .filter((id): id is string => !!id);
   });
   const [error, setError] = useState('');
 
   const teamStories = useMemo(
     () =>
-      stories
+      allStories
         .filter((s) => s.teamId === teamId)
         .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
-    [stories, teamId],
+    [allStories, teamId],
   );
 
   const pickableStories = useMemo(() => {
@@ -147,14 +148,16 @@ export function HighlightEditorSheet({
             <div className="highlight-story-pick">
               {pickableStories.map((story) => {
                 const selected = selectedIds.includes(story.id);
+                const expired = !isStoryActive(story);
                 return (
                   <button
                     key={story.id}
                     type="button"
-                    className={`highlight-story-item ${selected ? 'selected' : ''}`}
+                    className={`highlight-story-item ${selected ? 'selected' : ''}${expired ? ' is-expired' : ''}`}
                     onClick={() => toggleStory(story.id)}
                   >
                     <img src={story.image} alt="" />
+                    {expired && <span className="highlight-story-expired">지난</span>}
                     {selected && <span className="highlight-story-check">✓</span>}
                   </button>
                 );
@@ -163,8 +166,8 @@ export function HighlightEditorSheet({
           ) : (
             <p className="highlight-sheet-empty">
               {mode === 'append'
-                ? '추가할 수 있는 새 스토리가 없어요. 스토리를 올린 뒤 다시 시도해 주세요.'
-                : '올린 스토리가 없어요. 스토리를 올린 뒤 하이라이트에 담을 수 있어요.'}
+                ? '추가할 수 있는 스토리가 없어요.'
+                : '아직 스토리가 없어요. 스토리를 올린 뒤 하이라이트에 담을 수 있어요.'}
             </p>
           )}
 

@@ -94,7 +94,13 @@ export function SoundDetailSheet({ trackId, canDelete = false, onClose }: SoundD
               <div className="sound-detail-comment-row">
                 <p className="feed-comment">
                   {c.replyTo ? <span className="comment-reply-tag">@{c.replyTo} </span> : null}
-                  <CommentAuthor comment={c} layout="inline" contextTeam={team} onNavigate={onClose} />{' '}
+                  <CommentAuthor
+                    comment={c}
+                    layout="inline"
+                    contextTeam={team}
+                    highlightPostTeam
+                    onNavigate={onClose}
+                  />{' '}
                   <CommentTimestampText text={c.text} onTimestampClick={handleTimestampClick} />
                 </p>
                 <button
@@ -104,7 +110,7 @@ export function SoundDetailSheet({ trackId, canDelete = false, onClose }: SoundD
                   aria-pressed={c.likedByMe ?? false}
                   aria-label={c.likedByMe ? '좋아요 취소' : '좋아요'}
                 >
-                  {c.likedByMe ? '♥' : '♡'}
+                  {c.likedByMe ? '♥' : '♡'} {c.likes ?? 0}
                 </button>
               </div>
             </div>

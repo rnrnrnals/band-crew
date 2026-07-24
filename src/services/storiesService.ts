@@ -2,13 +2,17 @@ import type { Story } from '../types';
 import { DB_TABLES } from '../lib/databaseTables';
 import { requireSupabase } from '../lib/supabase';
 import { mapStory } from '../lib/supabaseMappers';
-import { STORY_TTL_MS } from '../utils/storyUtils';
-import { deleteStorageUrls } from './storageService';
+import { STORY_ARCHIVE_MS } from '../utils/storyUtils';
+import {
+  deleteOrphanHighlightImageUrls,
+  fetchHighlightedStoryIds,
+} from './highlightsService';
 
 type DbStoryRow = {
   id: string;
   team_id: string;
   image_url: string;
+  media_type?: string | null;
   caption: string;
   created_at: string;
 };
@@ -34,6 +38,7 @@ export async function createStoryInDb(input: Omit<Story, 'id' | 'createdAt'>): P
     .insert({
       team_id: input.teamId,
       image_url: input.image,
+      media_type: input.mediaType ?? 'image',
       caption: input.caption ?? '',
     })
     .select('*')
@@ -43,8 +48,11 @@ export async function createStoryInDb(input: Omit<Story, 'id' | 'createdAt'>): P
   return mapStory(data as DbStoryRow);
 }
 
-/** Remove expired stories and their storage files. Safe to run on each bootstrap. */
-export async function purgeExpiredStoriesInDb(maxAgeMs = STORY_TTL_MS): Promise<number> {
+/**
+ * Remove old stories no longer on the 24h rail. Stories referenced by highlights are
+ * kept indefinitely; others are removed after STORY_ARCHIVE_MS (default 7 days).
+ */
+export async function purgeExpiredStoriesInDb(maxAgeMs = STORY_ARCHIVE_MS): Promise<number> {
   const supabase = requireSupabase();
   const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
 
@@ -57,18 +65,25 @@ export async function purgeExpiredStoriesInDb(maxAgeMs = STORY_TTL_MS): Promise<
   const expired = (rows ?? []) as Pick<DbStoryRow, 'id' | 'image_url'>[];
   if (expired.length === 0) return 0;
 
-  await deleteStorageUrls(...expired.map((row) => row.image_url));
+  const highlightedStoryIds = await fetchHighlightedStoryIds(supabase);
+  const deletable = expired.filter((row) => !highlightedStoryIds.has(row.id));
+  if (deletable.length === 0) return 0;
+
+  await deleteOrphanHighlightImageUrls(
+    supabase,
+    deletable.map((row) => row.image_url),
+  );
 
   const { error: deleteError } = await supabase
     .from(DB_TABLES.stories)
     .delete()
     .in(
       'id',
-      expired.map((row) => row.id),
+      deletable.map((row) => row.id),
     );
   if (deleteError) throw deleteError;
 
-  return expired.length;
+  return deletable.length;
 }
 
 export async function deleteStoryInDb(storyId: string): Promise<void> {
@@ -80,7 +95,9 @@ export async function deleteStoryInDb(storyId: string): Promise<void> {
     .maybeSingle();
   if (readError) throw readError;
 
-  await deleteStorageUrls(row?.image_url as string | null | undefined);
+  if (row?.image_url) {
+    await deleteOrphanHighlightImageUrls(supabase, [row.image_url as string]);
+  }
 
   const { error } = await supabase.from(DB_TABLES.stories).delete().eq('id', storyId);
   if (error) throw error;
