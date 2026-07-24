@@ -49,8 +49,37 @@ import {
   mergeTeamPracticeSongs,
   saveTeamPracticeSongsCache,
 } from '../utils/teamPracticeSongsCache';
+import {
+  mergePracticeSessionPublicFlags,
+  removePracticeSessionPublicFlag,
+  setPracticeSessionPublicFlag,
+} from '../utils/practiceSessionPublicCache';
+import {
+  mergePracticeSessionLike,
+  mergePracticeSessionLikes,
+  setPracticeSessionLikeState,
+} from '../utils/practiceSessionLikesCache';
+import {
+  loadPracticeSessionCommentsCache,
+  savePracticeSessionCommentsForSession,
+} from '../utils/practiceSessionCommentsCache';
+import {
+  applyPracticeCommentLikeCache,
+  setPracticeCommentLikeState,
+} from '../utils/practiceCommentLikesCache';
+import { buildPracticeTrackKey } from '../utils/practiceTrackKey';
+import { clearPracticeSocialCaches } from '../utils/clearPracticeSocialCaches';
+import {
+  loadPracticeTrackCommentsCache,
+  loadPracticeTrackLikesCache,
+  mergeTrackLikeSnapshot,
+  savePracticeTrackCommentsForKey,
+  setPracticeTrackLikeState,
+  type PracticeTrackLikeState,
+} from '../utils/practiceTrackSocialCache';
 import { normalizeTeamBio } from '../utils/teamBio';
 import { normalizeInstagramUsername } from '../utils/teamInstagram';
+import { getCommentReplyLabel, isOwnComment } from '../utils/commentUtils';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { findCurrentMember, isCurrentMember, isTeamLeader, canManageTeam as memberCanManageTeam, mergeDisplayProfile } from '../mock/memberUtils';
 import { bootstrapUserData, type BootstrapData } from '../services/bootstrapService';
@@ -61,7 +90,6 @@ import {
   deleteAudioTrackInDb,
   toggleAudioCommentLikeInDb,
   toggleAudioLikeInDb,
-  updateAudioCommentInDb,
 } from '../services/audioService';
 import {
   appendHighlightStoriesInDb,
@@ -70,7 +98,20 @@ import {
   updateHighlightInDb,
 } from '../services/highlightsService';
 import { createChatMessageInDb, subscribeChatMessages, softDeleteChatMessageInDb, updateChatMessageTextInDb } from '../services/chatService';
-import { createPracticeSessionInDb, deletePracticeSessionInDb, updatePracticeSessionInDb } from '../services/practiceService';
+import { createPracticeSessionInDb, deletePracticeSessionInDb, fetchPracticeSessionLikeCounts, fetchPublicPracticeSessionsForTeam, togglePracticeSessionLikeInDb, updatePracticeSessionInDb } from '../services/practiceService';
+import {
+  createPracticeSessionCommentInDb,
+  deletePracticeSessionCommentInDb,
+  fetchPracticeSessionCommentsInDb,
+  togglePracticeSessionCommentLikeInDb,
+} from '../services/practiceCommentsService';
+import {
+  createPracticeTrackCommentInDb,
+  deletePracticeTrackCommentInDb,
+  fetchPracticeTrackSocialInDb,
+  togglePracticeTrackCommentLikeInDb,
+  togglePracticeTrackLikeInDb,
+} from '../services/practiceTrackSocialService';
 import {
   createTeamPracticeSongInDb,
   deleteTeamPracticeSongInDb,
@@ -91,7 +132,6 @@ import {
   deletePostInDb,
   togglePostCommentLikeInDb,
   togglePostLikeInDb,
-  updatePostCommentInDb,
 } from '../services/postsService';
 import {
   cleanupEmptyTeamsInDb,
@@ -99,6 +139,7 @@ import {
   normalizeTeamName,
   fetchMyTeams,
   fetchTeamById,
+  fetchTeamsByIds,
   generateInviteCodeInDb,
   joinTeamInDb,
   leaveTeamInDb,
@@ -113,6 +154,8 @@ import {
 import { useAuth } from './AuthContext';
 
 const LS_KEY = 'band-crew-state-v1';
+
+const EMPTY_USER: AppUser = { id: '', name: '', avatar: '' };
 
 interface Persisted {
   activeTeamId: string | null;
@@ -142,6 +185,7 @@ interface AppState {
   sessions: PracticeSessionMeta[];
   teamPracticeSongs: TeamPracticeSong[];
   stories: Story[];
+  allStories: Story[];
   highlights: TeamHighlight[];
   teamAudios: TeamAudioTrack[];
   chatMessages: ChatMessage[];
@@ -151,6 +195,7 @@ interface AppState {
   isActiveTeamLeader: boolean;
   canManageActiveTeam: boolean;
   canManageTeam: (teamId: string) => boolean;
+  publicSessionsByTeamId: Record<string, PracticeSessionMeta[]>;
   transferTeamLeadership: (memberId: string) => Promise<{ ok: boolean; message: string }>;
   setTeamCoLeader: (memberId: string | null) => Promise<{ ok: boolean; message: string }>;
   refreshAppData: () => Promise<void>;
@@ -174,20 +219,35 @@ interface AppState {
   toggleLike: (postId: string) => void;
   addComment: (postId: string, text: string, parentId?: string) => void;
   addAudioComment: (trackId: string, text: string, parentId?: string) => void;
-  updateAudioComment: (trackId: string, commentId: string, text: string) => void;
   deleteAudioComment: (trackId: string, commentId: string) => void;
   toggleAudioCommentLike: (trackId: string, commentId: string) => void;
   toggleAudioLike: (trackId: string) => void;
-  updateComment: (postId: string, commentId: string, text: string) => void;
   deleteComment: (postId: string, commentId: string) => void;
   toggleCommentLike: (postId: string, commentId: string) => void;
   addEvent: (ev: Omit<ScheduleEvent, 'id'>) => void;
   deleteEvent: (eventId: string) => Promise<boolean>;
   addSession: (title: string, bpm: number, teamId?: string) => PracticeSessionMeta;
   addTeamPracticeSong: (title: string, teamId: string) => Promise<{ ok: boolean; message?: string }>;
-  updatePracticeSession: (sessionId: string, patch: { title?: string; bpm?: number }) => Promise<void>;
+  updatePracticeSession: (sessionId: string, patch: { title?: string; bpm?: number; isPublic?: boolean }) => Promise<void>;
+  togglePracticeSessionPublic: (sessionId: string) => Promise<void>;
+  loadPublicPracticeSessions: (teamId: string) => Promise<void>;
+  getPublicPracticeSessions: (teamId: string) => PracticeSessionMeta[];
+  togglePracticeSessionLike: (sessionId: string) => void;
+  loadPracticeSessionComments: (sessionId: string) => Promise<void>;
+  getPracticeSessionComments: (sessionId: string) => PostComment[];
+  addPracticeSessionComment: (sessionId: string, text: string, parentId?: string) => Promise<void>;
+  deletePracticeSessionComment: (sessionId: string, commentId: string) => void;
+  togglePracticeSessionCommentLike: (sessionId: string, commentId: string) => void;
+  loadPracticeTrackSocial: (sessionId: string, trackKeys: number[]) => Promise<void>;
+  getPracticeTrackLike: (sessionId: string, trackKey: number) => PracticeTrackLikeState;
+  togglePracticeTrackLike: (sessionId: string, trackKey: number) => void;
+  getPracticeTrackComments: (sessionId: string, trackKey: number) => PostComment[];
+  addPracticeTrackComment: (sessionId: string, trackKey: number, text: string) => Promise<void>;
+  deletePracticeTrackComment: (sessionId: string, trackKey: number, commentId: string) => void;
+  togglePracticeTrackCommentLike: (sessionId: string, trackKey: number, commentId: string) => void;
   promoteTeamPracticeSong: (songId: string) => Promise<void>;
   loadTeamPracticeSongs: (teamId: string) => Promise<void>;
+  loadTeamFollowing: (teamId: string) => Promise<void>;
   isOwnPracticeSession: (session: PracticeSessionMeta) => boolean;
   isOwnTeamPracticeSong: (song: TeamPracticeSong) => boolean;
   deleteSession: (sessionId: string) => Promise<boolean>;
@@ -232,8 +292,8 @@ function loadPersisted(): Partial<Persisted> {
   }
 }
 
-function resolveUserProfile(initial: Partial<Persisted>): AppUser {
-  const base = initial.userProfile ?? CURRENT_USER;
+function resolveUserProfile(initial: Partial<Persisted>, useDb: boolean): AppUser {
+  const base = initial.userProfile ?? (useDb ? EMPTY_USER : CURRENT_USER);
   const activeId = initial.activeTeamId ?? null;
   const myIds = initial.myTeamIds ?? [];
   if (!activeId || !myIds.includes(activeId)) return base;
@@ -274,7 +334,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const userId = session?.user.id;
 
   const initial = useDb ? ({} as Partial<Persisted>) : loadPersisted();
-  const initialUser = resolveUserProfile(initial);
+  const initialUser = resolveUserProfile(initial, useDb);
   const [customTeams, setCustomTeams] = useState<BandTeam[]>(() =>
     (initial.customTeams ?? []).filter((team) => team.members.length > 0),
   );
@@ -287,6 +347,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const [followingIds, setFollowingIds] = useState<string[]>(
     initial.followingIds ?? (useDb ? [] : ['t-night', 't-garage', 't-soft']),
+  );
+  const [followingIdsByTeam, setFollowingIdsByTeam] = useState<Record<string, string[]>>(
+    useDb ? {} : {},
   );
   const [followerIdsByTeam, setFollowerIdsByTeam] = useState<Record<string, string[]>>(
     initial.followerIdsByTeam ?? (useDb ? {} : INITIAL_TEAM_FOLLOWERS),
@@ -302,9 +365,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<ScheduleEvent[]>(
     initial.events ?? (useDb ? [] : INITIAL_EVENTS),
   );
-  const [sessions, setSessions] = useState<PracticeSessionMeta[]>(
-    initial.sessions ?? (useDb ? [] : INITIAL_SESSIONS),
-  );
+  const [sessions, setSessions] = useState<PracticeSessionMeta[]>(() => {
+    const base = mergePracticeSessionPublicFlags(initial.sessions ?? (useDb ? [] : INITIAL_SESSIONS));
+    return useDb ? base : mergePracticeSessionLikes(base);
+  });
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const trackSocialLoadGenRef = useRef(0);
+  const sessionCommentsLoadGenRef = useRef(0);
+  const trackSocialLoadKeyRef = useRef('');
+  const sessionCommentsLoadKeyRef = useRef('');
+  const [publicSessionsByTeamId, setPublicSessionsByTeamId] = useState<
+    Record<string, PracticeSessionMeta[]>
+  >({});
+  const [practiceSessionCommentsBySessionId, setPracticeSessionCommentsBySessionId] = useState<
+    Record<string, PostComment[]>
+  >(() => (useDb ? {} : loadPracticeSessionCommentsCache()));
+  const [practiceTrackLikesByKey, setPracticeTrackLikesByKey] = useState<
+    Record<string, PracticeTrackLikeState>
+  >(() => (useDb ? {} : loadPracticeTrackLikesCache()));
+  const [practiceTrackCommentsByKey, setPracticeTrackCommentsByKey] = useState<
+    Record<string, PostComment[]>
+  >(() => (useDb ? {} : loadPracticeTrackCommentsCache()));
   const [teamPracticeSongs, setTeamPracticeSongs] = useState<TeamPracticeSong[]>(() => {
     if (initial.teamPracticeSongs?.length) return initial.teamPracticeSongs;
     if (useDb) {
@@ -333,6 +415,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    if (!authRequired) return;
+    if (!userId) {
+      setUserProfile(EMPTY_USER);
+      return;
+    }
+    setUserProfile((prev) => (prev.id === userId ? prev : { id: userId, name: '', avatar: '' }));
+  }, [authRequired, userId]);
+
+  const prevSocialUserIdRef = useRef<string | undefined>(userId);
+  useEffect(() => {
+    if (!useDb) return;
+    const prev = prevSocialUserIdRef.current;
+    if (prev === userId) return;
+    prevSocialUserIdRef.current = userId;
+
+    const accountSwitched = prev !== undefined && prev !== userId;
+    if (accountSwitched || (prev && !userId)) {
+      clearPracticeSocialCaches();
+      setPracticeTrackLikesByKey({});
+      setPracticeTrackCommentsByKey({});
+      setPracticeSessionCommentsBySessionId({});
+      setPublicSessionsByTeamId({});
+      setSessions((prevSessions) => prevSessions.map((session) => ({ ...session, likedByMe: false })));
+    }
+
+    trackSocialLoadKeyRef.current = '';
+    sessionCommentsLoadKeyRef.current = '';
+  }, [useDb, userId]);
+
+  useEffect(() => {
     if (!authRequired || !authProfile || !userId) return;
     setUserProfile((prev) => {
       const activeTeam = customTeams.find((team) => team.id === activeTeamId);
@@ -356,6 +468,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setMyTeamIds(data.myTeamIds);
     setActiveTeamId(data.activeTeamId);
     setFollowingIds(data.followingIds);
+    setFollowingIdsByTeam(data.followingIdsByTeam);
     setFollowerIdsByTeam(data.followerIdsByTeam);
     setPosts(data.posts.map((post) => ({ ...post, comments: post.comments.map(normalizeComment) })));
     setTeamAudios(normalizeTeamAudios(data.teamAudios));
@@ -367,7 +480,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         data.sessions.filter((s) => s.authorUserId === userId).map((s) => s.id),
       );
     }
-    setSessions(data.sessions);
+    setSessions(
+      useDb
+        ? mergePracticeSessionPublicFlags(data.sessions)
+        : mergePracticeSessionLikes(mergePracticeSessionPublicFlags(data.sessions)),
+    );
     setTeamPracticeSongs((prev) => {
       const merged = mergeTeamPracticeSongs(
         data.teamPracticeSongs,
@@ -473,7 +590,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!useDb || !userId || !activeTeamId) return;
     void fetchFollowsForTeam(activeTeamId)
-      .then(setFollowingIds)
+      .then((ids) => {
+        setFollowingIds(ids);
+        setFollowingIdsByTeam((prev) => ({ ...prev, [activeTeamId]: ids }));
+      })
       .catch((err) => console.warn('[BandCrew] follow load failed', err));
   }, [useDb, userId, activeTeamId]);
 
@@ -483,6 +603,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (useDb) return;
     const savedName = (initial.userProfile ?? CURRENT_USER).name;
     if (initialUser.name !== savedName) {
       savePersisted({
@@ -562,21 +683,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [activeTeamId, myTeamIds, followingIds, followerIdsByTeam, customTeams, userProfile, posts, events, sessions, teamPracticeSongs, stories, highlights, teamAudios, chatMessages, useDb],
   );
-
-  useEffect(() => {
-    if (activeStories.length === stories.length) return;
-    setStories(activeStories);
-    if (!useDb) persist({ stories: activeStories });
-  }, [activeStories, stories.length, persist, useDb]);
-
-  useEffect(() => {
-    const persisted = initial.stories ?? INITIAL_STORIES;
-    const filtered = filterActiveStories(persisted);
-    if (persisted.length !== filtered.length) {
-      persist({ stories: filtered });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time cleanup for expired stories in storage
-  }, []);
 
   const user = userProfile;
 
@@ -952,6 +1058,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ? followingIds.filter((id) => id !== teamId)
       : [...followingIds, teamId];
     setFollowingIds(nextFollowing);
+    if (activeTeamId) {
+      setFollowingIdsByTeam((prev) => ({ ...prev, [activeTeamId]: nextFollowing }));
+    }
 
     let nextFollowers = followerIdsByTeam;
     if (activeTeamId && activeTeamId !== teamId) {
@@ -1037,8 +1146,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!trimmed) return;
     const post = posts.find((p) => p.id === postId);
     const nick = getMyNick();
+    const postTeam = post ? teams.find((t) => t.id === post.teamId) : undefined;
     const isOtherTeamPost = !!activeTeamId && post?.teamId !== activeTeamId;
     const parent = parentId ? post?.comments.find((c) => c.id === parentId) : undefined;
+    const replyTo = parent ? getCommentReplyLabel(parent, postTeam, true) : undefined;
 
     if (useDb && userId) {
       void createPostCommentInDb(userId, {
@@ -1046,7 +1157,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         text: trimmed,
         authorTeamId: isOtherTeamPost ? activeTeamId ?? undefined : undefined,
         parentId: parent?.id,
-        replyTo: parent ? parent.authorNick ?? parent.authorTeam ?? parent.author : undefined,
+        replyTo,
       })
         .then((comment) => {
           setPosts((prev) =>
@@ -1065,7 +1176,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       authorNick: isOtherTeamPost ? nick : undefined,
       text: trimmed,
       parentId: parent?.id,
-      replyTo: parent ? parent.authorNick ?? parent.authorTeam ?? parent.author : undefined,
+      replyTo,
       likes: 0,
       likedByMe: false,
     };
@@ -1074,35 +1185,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
     setPosts(next);
     persist({ posts: next });
-  };
-
-  const updateComment = (postId: string, commentId: string, text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    const nick = getMyNick();
-    const next = posts.map((p) => {
-      if (p.id !== postId) return p;
-      return {
-        ...p,
-        comments: p.comments.map((comment) => {
-          if (comment.id !== commentId) return comment;
-          const own =
-            comment.authorUserId === userProfile.id ||
-            (comment.authorTeam
-              ? comment.authorTeam === activeTeam?.name && comment.authorNick === nick
-              : comment.author === nick);
-          if (!own) return comment;
-          return { ...comment, text: trimmed };
-        }),
-      };
-    });
-    setPosts(next);
-    if (!useDb) persist({ posts: next });
-    if (useDb) {
-      void updatePostCommentInDb(commentId, trimmed).catch((err) =>
-        console.error('[BandCrew] updateComment failed', err),
-      );
-    }
   };
 
   const deleteComment = (postId: string, commentId: string) => {
@@ -1139,8 +1221,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const track = teamAudios.find((t) => t.id === trackId);
     const member = activeTeam ? findCurrentMember(activeTeam, userProfile) : undefined;
     const nick = member?.nick ?? userProfile.name;
+    const trackTeam = track ? teams.find((t) => t.id === track.teamId) : undefined;
     const isOtherTeamTrack = !!activeTeamId && track?.teamId !== activeTeamId;
     const parent = parentId ? track?.comments?.find((c) => c.id === parentId) : undefined;
+    const replyTo = parent ? getCommentReplyLabel(parent, trackTeam, true) : undefined;
 
     if (useDb && userId) {
       void createAudioCommentInDb(userId, {
@@ -1148,7 +1232,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         text: trimmed,
         authorTeamId: isOtherTeamTrack ? activeTeamId ?? undefined : undefined,
         parentId: parent?.id,
-        replyTo: parent ? parent.authorNick ?? parent.authorTeam ?? parent.author : undefined,
+        replyTo,
       })
         .then((comment) => {
           setTeamAudios((prev) =>
@@ -1170,7 +1254,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       authorAvatar: member?.avatar ?? userProfile.avatar,
       text: trimmed,
       parentId: parent?.id,
-      replyTo: parent ? parent.authorNick ?? parent.authorTeam ?? parent.author : undefined,
+      replyTo,
       likes: 0,
       likedByMe: false,
     };
@@ -1179,35 +1263,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
     setTeamAudios(next);
     persist({ teamAudios: next });
-  };
-
-  const updateAudioComment = (trackId: string, commentId: string, text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    const nick = getMyNick();
-    const next = teamAudios.map((t) => {
-      if (t.id !== trackId) return t;
-      return {
-        ...t,
-        comments: (t.comments ?? []).map((comment) => {
-          if (comment.id !== commentId) return comment;
-          const own =
-            comment.authorUserId === userProfile.id ||
-            (comment.authorTeam
-              ? comment.authorTeam === activeTeam?.name && comment.authorNick === nick
-              : comment.author === nick);
-          if (!own) return comment;
-          return { ...comment, text: trimmed };
-        }),
-      };
-    });
-    setTeamAudios(next);
-    if (!useDb) persist({ teamAudios: next });
-    if (useDb) {
-      void updateAudioCommentInDb(commentId, trimmed).catch((err) =>
-        console.error('[BandCrew] updateAudioComment failed', err),
-      );
-    }
   };
 
   const deleteAudioComment = (trackId: string, commentId: string) => {
@@ -1507,37 +1562,628 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [useDb],
   );
 
+  const loadTeamFollowing = useCallback(
+    async (teamId: string) => {
+      if (!useDb) return;
+      try {
+        const ids = await fetchFollowsForTeam(teamId);
+        setFollowingIdsByTeam((prev) => ({ ...prev, [teamId]: ids }));
+        if (teamId === activeTeamId) {
+          setFollowingIds(ids);
+        }
+
+        let missing: string[] = [];
+        setCustomTeams((prev) => {
+          const known = new Set(prev.map((t) => t.id));
+          missing = ids.filter((id) => !known.has(id));
+          return prev;
+        });
+        if (missing.length > 0) {
+          const fetched = await fetchTeamsByIds(missing);
+          fetched.forEach((team) => mergeTeam(team));
+        }
+      } catch (err) {
+        console.warn('[BandCrew] loadTeamFollowing failed', err);
+      }
+    },
+    [useDb, activeTeamId],
+  );
+
   const updatePracticeSession = useCallback(
-    async (sessionId: string, patch: { title?: string; bpm?: number }) => {
+    async (sessionId: string, patch: { title?: string; bpm?: number; isPublic?: boolean }) => {
       const target = sessions.find((session) => session.id === sessionId);
       if (!target || !myTeamIds.includes(target.teamId)) {
         throw new Error('수정 권한이 없어요.');
       }
 
-      const title = patch.title?.trim() || target.title;
-      const bpm = patch.bpm ?? target.bpm;
-      const optimistic: PracticeSessionMeta = {
+      const previous = target;
+      const title = patch.title !== undefined ? patch.title.trim() || target.title : target.title;
+      const bpm = patch.bpm !== undefined ? patch.bpm : target.bpm;
+      const isPublic = patch.isPublic !== undefined ? patch.isPublic : target.isPublic;
+      const optimisticBase: PracticeSessionMeta = {
         ...target,
         title,
         bpm,
+        isPublic,
         updatedAt: new Date().toISOString(),
       };
+      const optimistic = useDb ? optimisticBase : mergePracticeSessionLike(optimisticBase);
 
-      setSessions((prev) => prev.map((session) => (session.id === sessionId ? optimistic : session)));
+      const dbPatch: { title?: string; bpm?: number; isPublic?: boolean } = {};
+      if (patch.title !== undefined) dbPatch.title = title;
+      if (patch.bpm !== undefined) dbPatch.bpm = bpm;
+      if (patch.isPublic !== undefined) dbPatch.isPublic = isPublic;
 
+      setSessions((prev) =>
+        prev.map((session) => (session.id === sessionId ? optimistic : session)),
+      );
+
+      const syncPublicCache = (session: PracticeSessionMeta) => {
+        const merged = useDb ? session : mergePracticeSessionLike(session);
+        setPublicSessionsByTeamId((prev) => {
+          const teamId = merged.teamId;
+          const current = prev[teamId] ?? [];
+          if (merged.isPublic) {
+            const exists = current.some((item) => item.id === merged.id);
+            const next = exists
+              ? current.map((item) => (item.id === merged.id ? merged : item))
+              : [merged, ...current];
+            return { ...prev, [teamId]: next };
+          }
+          return { ...prev, [teamId]: current.filter((item) => item.id !== merged.id) };
+        });
+        return merged;
+      };
+
+      try {
+        if (useDb) {
+          const updated = await updatePracticeSessionInDb(sessionId, dbPatch, target);
+          setPracticeSessionPublicFlag(updated.id, updated.isPublic === true);
+          const merged = syncPublicCache({
+            ...updated,
+            likes: target.likes,
+            likedByMe: target.likedByMe,
+          });
+          setSessions((prev) => prev.map((session) => (session.id === sessionId ? merged : session)));
+          return;
+        }
+
+        setPracticeSessionPublicFlag(optimistic.id, optimistic.isPublic === true);
+        const merged = syncPublicCache(optimistic);
+        setSessions((prev) => {
+          const next = prev.map((session) => (session.id === sessionId ? merged : session));
+          persist({ sessions: next });
+          return next;
+        });
+      } catch (err) {
+        setSessions((prev) =>
+          prev.map((session) => (session.id === sessionId ? mergePracticeSessionLike(previous) : session)),
+        );
+        throw err instanceof Error ? err : new Error('세션을 수정하지 못했어요.');
+      }
+    },
+    [sessions, myTeamIds, useDb, persist],
+  );
+
+  const togglePracticeSessionPublic = useCallback(
+    async (sessionId: string) => {
+      const target = sessions.find((session) => session.id === sessionId);
+      if (!target || !myTeamIds.includes(target.teamId)) {
+        throw new Error('공개 설정을 바꿀 권한이 없어요.');
+      }
+      await updatePracticeSession(sessionId, { isPublic: !Boolean(target.isPublic) });
+    },
+    [sessions, myTeamIds, updatePracticeSession],
+  );
+
+  const loadPublicPracticeSessions = useCallback(
+    async (teamId: string) => {
       if (useDb) {
-        const updated = await updatePracticeSessionInDb(sessionId, { title, bpm });
-        setSessions((prev) => prev.map((session) => (session.id === sessionId ? updated : session)));
+        const list = await fetchPublicPracticeSessionsForTeam(teamId, userId);
+        setPublicSessionsByTeamId((prev) => ({ ...prev, [teamId]: list }));
         return;
       }
 
+      const list = mergePracticeSessionLikes(
+        sessionsRef.current.filter((session) => session.teamId === teamId && session.isPublic),
+      );
+      setPublicSessionsByTeamId((prev) => ({ ...prev, [teamId]: list }));
+    },
+    [useDb, userId],
+  );
+
+  const getPublicPracticeSessions = useCallback(
+    (teamId: string) => publicSessionsByTeamId[teamId] ?? [],
+    [publicSessionsByTeamId],
+  );
+
+  const togglePracticeSessionLike = useCallback(
+    (sessionId: string) => {
+      if (useDb && !userId) {
+        console.warn('[BandCrew] togglePracticeSessionLike skipped — not signed in');
+        return;
+      }
+
+      const target =
+        sessions.find((session) => session.id === sessionId) ??
+        Object.values(publicSessionsByTeamId)
+          .flat()
+          .find((session) => session.id === sessionId);
+      if (!target) return;
+
+      const previousLiked = target.likedByMe ?? false;
+      const nextLiked = !previousLiked;
+
+      if (useDb && userId) {
+        void (async () => {
+          try {
+            await togglePracticeSessionLikeInDb(sessionId, userId, nextLiked);
+            const snapshot =
+              (await fetchPracticeSessionLikeCounts([sessionId], userId))[sessionId] ??
+              { likes: 0, likedByMe: false };
+            const patch = (session: PracticeSessionMeta) =>
+              session.id === sessionId
+                ? { ...session, likedByMe: snapshot.likedByMe, likes: snapshot.likes }
+                : session;
+
+            setSessions((prev) => {
+              if (!prev.some((session) => session.id === sessionId)) return prev;
+              return prev.map(patch);
+            });
+            setPublicSessionsByTeamId((prev) => {
+              const next: Record<string, PracticeSessionMeta[]> = {};
+              for (const [teamId, list] of Object.entries(prev)) {
+                next[teamId] = list.map(patch);
+              }
+              return next;
+            });
+          } catch (err) {
+            console.error('[BandCrew] togglePracticeSessionLike failed', err);
+          }
+        })();
+        return;
+      }
+
+      const previousLikes = target.likes ?? 0;
+      const nextLikes = Math.max(0, previousLikes + (nextLiked ? 1 : -1));
+      const patch = (session: PracticeSessionMeta) =>
+        session.id === sessionId
+          ? { ...session, likedByMe: nextLiked, likes: nextLikes }
+          : session;
+
       setSessions((prev) => {
-        const next = prev.map((session) => (session.id === sessionId ? optimistic : session));
+        if (!prev.some((session) => session.id === sessionId)) return prev;
+        const next = prev.map(patch);
         persist({ sessions: next });
         return next;
       });
+
+      setPublicSessionsByTeamId((prev) => {
+        const next: Record<string, PracticeSessionMeta[]> = {};
+        for (const [teamId, list] of Object.entries(prev)) {
+          next[teamId] = list.map(patch);
+        }
+        return next;
+      });
+
+      setPracticeSessionLikeState(sessionId, { likes: nextLikes, likedByMe: nextLiked });
     },
-    [sessions, myTeamIds, useDb, persist],
+    [publicSessionsByTeamId, persist, sessions, useDb, userId],
+  );
+
+  const loadPracticeSessionComments = useCallback(
+    async (sessionId: string) => {
+      if (useDb && !userId) return;
+
+      if (useDb) {
+        const gen = ++sessionCommentsLoadGenRef.current;
+        const fetched = await fetchPracticeSessionCommentsInDb(sessionId, userId);
+        if (gen !== sessionCommentsLoadGenRef.current) return;
+        setPracticeSessionCommentsBySessionId((prev) => ({ ...prev, [sessionId]: fetched }));
+        return;
+      }
+
+      setPracticeSessionCommentsBySessionId((prev) => {
+        const previous = prev[sessionId] ?? [];
+        const cached = applyPracticeCommentLikeCache(
+          loadPracticeSessionCommentsCache()[sessionId] ?? [],
+          previous,
+        );
+        return { ...prev, [sessionId]: cached };
+      });
+    },
+    [useDb, userId],
+  );
+
+  const getPracticeSessionComments = useCallback(
+    (sessionId: string) => practiceSessionCommentsBySessionId[sessionId] ?? [],
+    [practiceSessionCommentsBySessionId],
+  );
+
+  const findPracticeSession = useCallback(
+    (sessionId: string): PracticeSessionMeta | undefined =>
+      sessions.find((item) => item.id === sessionId) ??
+      Object.values(publicSessionsByTeamId)
+        .flat()
+        .find((item) => item.id === sessionId),
+    [sessions, publicSessionsByTeamId],
+  );
+
+  const addPracticeSessionComment = useCallback(
+    async (sessionId: string, text: string, parentId?: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+
+      const targetSession = findPracticeSession(sessionId);
+      if (!targetSession) throw new Error('세션을 찾을 수 없어요.');
+
+      const sessionTeam = teams.find((team) => team.id === targetSession.teamId);
+      const nick = getMyNick();
+      const isOtherTeamSession = !!activeTeamId && targetSession.teamId !== activeTeamId;
+      const parent = parentId
+        ? (practiceSessionCommentsBySessionId[sessionId] ?? []).find((comment) => comment.id === parentId)
+        : undefined;
+      const replyTo = parent ? getCommentReplyLabel(parent, sessionTeam, true) : undefined;
+
+      if (useDb && userId) {
+        const comment = await createPracticeSessionCommentInDb(userId, {
+          sessionId,
+          text: trimmed,
+          authorTeamId: isOtherTeamSession ? activeTeamId ?? undefined : undefined,
+          parentId: parent?.id,
+          replyTo,
+        });
+        setPracticeSessionCommentsBySessionId((prev) => {
+          const nextList = [...(prev[sessionId] ?? []), comment];
+          savePracticeSessionCommentsForSession(sessionId, nextList);
+          return { ...prev, [sessionId]: nextList };
+        });
+        return;
+      }
+
+      const comment: PostComment = {
+        id: `psc-${Date.now()}`,
+        author: isOtherTeamSession ? (activeTeam?.name ?? nick) : nick,
+        authorUserId: userProfile.id,
+        authorTeam: isOtherTeamSession ? activeTeam?.name : undefined,
+        authorNick: isOtherTeamSession ? nick : undefined,
+        text: trimmed,
+        parentId: parent?.id,
+        replyTo,
+        likes: 0,
+        likedByMe: false,
+      };
+
+      setPracticeSessionCommentsBySessionId((prev) => {
+        const nextList = [...(prev[sessionId] ?? []), comment];
+        savePracticeSessionCommentsForSession(sessionId, nextList);
+        return { ...prev, [sessionId]: nextList };
+      });
+    },
+    [
+      activeTeam,
+      activeTeamId,
+      findPracticeSession,
+      practiceSessionCommentsBySessionId,
+      teams,
+      useDb,
+      userId,
+      userProfile.id,
+    ],
+  );
+
+  const deletePracticeSessionComment = useCallback(
+    (sessionId: string, commentId: string) => {
+      const nick = getMyNick();
+      setPracticeSessionCommentsBySessionId((prev) => {
+        const list = prev[sessionId] ?? [];
+        const target = list.find((comment) => comment.id === commentId);
+        if (!target || !isOwnComment(target, userProfile.id, nick, activeTeam?.name)) {
+          return prev;
+        }
+        const nextList = list.filter(
+          (comment) => comment.id !== commentId && comment.parentId !== commentId,
+        );
+        savePracticeSessionCommentsForSession(sessionId, nextList);
+        return { ...prev, [sessionId]: nextList };
+      });
+
+      if (useDb) {
+        void deletePracticeSessionCommentInDb(commentId).catch((err) =>
+          console.error('[BandCrew] deletePracticeSessionComment failed', err),
+        );
+      }
+    },
+    [activeTeam?.name, useDb, userProfile.id],
+  );
+
+  const togglePracticeSessionCommentLike = useCallback(
+    (sessionId: string, commentId: string) => {
+      if (useDb && !userId) return;
+
+      if (useDb && userId) {
+        void (async () => {
+          const list = practiceSessionCommentsBySessionId[sessionId] ?? [];
+          const target = list.find((comment) => comment.id === commentId);
+          if (!target) return;
+          const nextLiked = !(target.likedByMe ?? false);
+          const nextLikes = Math.max(0, (target.likes ?? 0) + (nextLiked ? 1 : -1));
+          try {
+            await togglePracticeSessionCommentLikeInDb(commentId, userId, nextLiked);
+            setPracticeSessionCommentsBySessionId((prev) => ({
+              ...prev,
+              [sessionId]: (prev[sessionId] ?? []).map((comment) =>
+                comment.id === commentId
+                  ? { ...comment, likedByMe: nextLiked, likes: nextLikes }
+                  : comment,
+              ),
+            }));
+          } catch (err) {
+            console.error('[BandCrew] togglePracticeSessionCommentLike failed', err);
+          }
+        })();
+        return;
+      }
+
+      let liked = false;
+      let nextLikes = 0;
+      setPracticeSessionCommentsBySessionId((prev) => {
+        const list = prev[sessionId] ?? [];
+        const nextList = list.map((comment) => {
+          if (comment.id !== commentId) return comment;
+          liked = !comment.likedByMe;
+          nextLikes = Math.max(0, (comment.likes ?? 0) + (liked ? 1 : -1));
+          return {
+            ...comment,
+            likedByMe: liked,
+            likes: nextLikes,
+          };
+        });
+        savePracticeSessionCommentsForSession(sessionId, nextList);
+        return { ...prev, [sessionId]: nextList };
+      });
+
+      setPracticeCommentLikeState(commentId, { likes: nextLikes, likedByMe: liked });
+    },
+    [practiceSessionCommentsBySessionId, useDb, userId],
+  );
+
+  const loadPracticeTrackSocial = useCallback(
+    async (sessionId: string, trackKeys: number[]) => {
+      if (trackKeys.length === 0) return;
+
+      const loadKey = `${sessionId}:${[...trackKeys].sort((a, b) => a - b).join(',')}`;
+
+      if (useDb) {
+        if (!userId) return;
+        const gen = ++trackSocialLoadGenRef.current;
+        try {
+          const data = await fetchPracticeTrackSocialInDb(sessionId, trackKeys, userId);
+          if (gen !== trackSocialLoadGenRef.current) return;
+          setPracticeTrackLikesByKey((prev) => {
+            const next = { ...prev };
+            for (const trackKey of trackKeys) {
+              const key = buildPracticeTrackKey(sessionId, trackKey);
+              next[key] = data.likes[trackKey] ?? { likes: 0, likedByMe: false };
+            }
+            return next;
+          });
+          setPracticeTrackCommentsByKey((prev) => {
+            const next = { ...prev };
+            for (const trackKey of trackKeys) {
+              const key = buildPracticeTrackKey(sessionId, trackKey);
+              next[key] = data.comments[trackKey] ?? [];
+            }
+            return next;
+          });
+          return;
+        } catch (err) {
+          if (gen !== trackSocialLoadGenRef.current) return;
+          console.error('[BandCrew] loadPracticeTrackSocial db failed', err);
+          return;
+        }
+      }
+
+      if (trackSocialLoadKeyRef.current === loadKey) return;
+      trackSocialLoadKeyRef.current = loadKey;
+
+      const likesCache = loadPracticeTrackLikesCache();
+      const commentsCache = loadPracticeTrackCommentsCache();
+
+      setPracticeTrackLikesByKey((prev) => {
+        const next = { ...prev };
+        for (const trackKey of trackKeys) {
+          const key = buildPracticeTrackKey(sessionId, trackKey);
+          next[key] = mergeTrackLikeSnapshot(undefined, likesCache[key], prev[key]);
+        }
+        return next;
+      });
+      setPracticeTrackCommentsByKey((prev) => {
+        const next = { ...prev };
+        for (const trackKey of trackKeys) {
+          const key = buildPracticeTrackKey(sessionId, trackKey);
+          next[key] = applyPracticeCommentLikeCache(commentsCache[key] ?? [], prev[key] ?? []);
+        }
+        return next;
+      });
+    },
+    [useDb, userId],
+  );
+
+  const getPracticeTrackLike = useCallback(
+    (sessionId: string, trackKey: number): PracticeTrackLikeState => {
+      const key = buildPracticeTrackKey(sessionId, trackKey);
+      return practiceTrackLikesByKey[key] ?? { likes: 0, likedByMe: false };
+    },
+    [practiceTrackLikesByKey],
+  );
+
+  const togglePracticeTrackLike = useCallback(
+    (sessionId: string, trackKey: number) => {
+      if (useDb && !userId) {
+        console.warn('[BandCrew] togglePracticeTrackLike skipped — not signed in');
+        return;
+      }
+
+      const storageKey = buildPracticeTrackKey(sessionId, trackKey);
+      const current = practiceTrackLikesByKey[storageKey] ?? { likes: 0, likedByMe: false };
+      const nextLiked = !current.likedByMe;
+
+      if (useDb && userId) {
+        void (async () => {
+          try {
+            await togglePracticeTrackLikeInDb(sessionId, trackKey, userId, nextLiked);
+            const data = await fetchPracticeTrackSocialInDb(sessionId, [trackKey], userId);
+            const snapshot = data.likes[trackKey] ?? { likes: 0, likedByMe: false };
+            setPracticeTrackLikesByKey((prev) => ({ ...prev, [storageKey]: snapshot }));
+          } catch (err) {
+            console.error('[BandCrew] togglePracticeTrackLike failed', err);
+          }
+        })();
+        return;
+      }
+
+      const nextLikes = Math.max(0, (current.likes ?? 0) + (nextLiked ? 1 : -1));
+      const nextState = { likes: nextLikes, likedByMe: nextLiked };
+      setPracticeTrackLikesByKey((prev) => ({ ...prev, [storageKey]: nextState }));
+      setPracticeTrackLikeState(storageKey, nextState);
+    },
+    [practiceTrackLikesByKey, useDb, userId],
+  );
+
+  const getPracticeTrackComments = useCallback(
+    (sessionId: string, trackKey: number) => {
+      const key = buildPracticeTrackKey(sessionId, trackKey);
+      return practiceTrackCommentsByKey[key] ?? [];
+    },
+    [practiceTrackCommentsByKey],
+  );
+
+  const addPracticeTrackComment = useCallback(
+    async (sessionId: string, trackKey: number, text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+
+      const targetSession = findPracticeSession(sessionId);
+      if (!targetSession) throw new Error('세션을 찾을 수 없어요.');
+
+      const nick = getMyNick();
+      const isOtherTeamSession = !!activeTeamId && targetSession.teamId !== activeTeamId;
+      const storageKey = buildPracticeTrackKey(sessionId, trackKey);
+
+      if (useDb && userId) {
+        const comment = await createPracticeTrackCommentInDb(userId, {
+          sessionId,
+          trackKey,
+          text: trimmed,
+          authorTeamId: isOtherTeamSession ? activeTeamId ?? undefined : undefined,
+        });
+        setPracticeTrackCommentsByKey((prev) => {
+          const nextList = [...(prev[storageKey] ?? []), comment];
+          if (!useDb) {
+            savePracticeTrackCommentsForKey(storageKey, nextList);
+          }
+          return { ...prev, [storageKey]: nextList };
+        });
+        return;
+      }
+
+      const comment: PostComment = {
+        id: `ptc-${Date.now()}`,
+        author: isOtherTeamSession ? (activeTeam?.name ?? nick) : nick,
+        authorUserId: userProfile.id,
+        authorTeam: isOtherTeamSession ? activeTeam?.name : undefined,
+        authorNick: isOtherTeamSession ? nick : undefined,
+        text: trimmed,
+        likes: 0,
+        likedByMe: false,
+      };
+
+      setPracticeTrackCommentsByKey((prev) => {
+        const nextList = [...(prev[storageKey] ?? []), comment];
+        savePracticeTrackCommentsForKey(storageKey, nextList);
+        return { ...prev, [storageKey]: nextList };
+      });
+    },
+    [activeTeam, activeTeamId, findPracticeSession, useDb, userId, userProfile.id],
+  );
+
+  const deletePracticeTrackComment = useCallback(
+    (sessionId: string, trackKey: number, commentId: string) => {
+      const nick = getMyNick();
+      const storageKey = buildPracticeTrackKey(sessionId, trackKey);
+
+      setPracticeTrackCommentsByKey((prev) => {
+        const list = prev[storageKey] ?? [];
+        const target = list.find((comment) => comment.id === commentId);
+        if (!target || !isOwnComment(target, userProfile.id, nick, activeTeam?.name)) {
+          return prev;
+        }
+        const nextList = list.filter((comment) => comment.id !== commentId);
+        savePracticeTrackCommentsForKey(storageKey, nextList);
+        return { ...prev, [storageKey]: nextList };
+      });
+
+      if (useDb) {
+        void deletePracticeTrackCommentInDb(commentId).catch((err) =>
+          console.error('[BandCrew] deletePracticeTrackComment failed', err),
+        );
+      }
+    },
+    [activeTeam?.name, useDb, userProfile.id],
+  );
+
+  const togglePracticeTrackCommentLike = useCallback(
+    (sessionId: string, trackKey: number, commentId: string) => {
+      if (useDb && !userId) return;
+
+      const storageKey = buildPracticeTrackKey(sessionId, trackKey);
+
+      if (useDb && userId) {
+        void (async () => {
+          const list = practiceTrackCommentsByKey[storageKey] ?? [];
+          const target = list.find((comment) => comment.id === commentId);
+          if (!target) return;
+          const nextLiked = !(target.likedByMe ?? false);
+          const nextLikes = Math.max(0, (target.likes ?? 0) + (nextLiked ? 1 : -1));
+          try {
+            await togglePracticeTrackCommentLikeInDb(commentId, userId, nextLiked);
+            setPracticeTrackCommentsByKey((prev) => ({
+              ...prev,
+              [storageKey]: (prev[storageKey] ?? []).map((comment) =>
+                comment.id === commentId
+                  ? { ...comment, likedByMe: nextLiked, likes: nextLikes }
+                  : comment,
+              ),
+            }));
+          } catch (err) {
+            console.error('[BandCrew] togglePracticeTrackCommentLike failed', err);
+          }
+        })();
+        return;
+      }
+
+      let liked = false;
+      let nextLikes = 0;
+      setPracticeTrackCommentsByKey((prev) => {
+        const list = prev[storageKey] ?? [];
+        const nextList = list.map((comment) => {
+          if (comment.id !== commentId) return comment;
+          liked = !comment.likedByMe;
+          nextLikes = Math.max(0, (comment.likes ?? 0) + (liked ? 1 : -1));
+          return {
+            ...comment,
+            likedByMe: liked,
+            likes: nextLikes,
+          };
+        });
+        savePracticeTrackCommentsForKey(storageKey, nextList);
+        return { ...prev, [storageKey]: nextList };
+      });
+
+      setPracticeCommentLikeState(commentId, { likes: nextLikes, likedByMe: liked });
+    },
+    [practiceTrackCommentsByKey, useDb, userId],
   );
 
   const promoteTeamPracticeSong = useCallback(
@@ -1643,10 +2289,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const removeLocal = () => {
         ownSessionIdsRef.current.delete(sessionId);
         deleteSessionTracks(sessionId);
+        removePracticeSessionPublicFlag(sessionId);
         setSessions((prev) => {
           const next = prev.filter((s) => s.id !== sessionId);
           if (!useDb) persist({ sessions: next });
           return next;
+        });
+        setPublicSessionsByTeamId((prev) => {
+          const teamId = target.teamId;
+          const current = prev[teamId];
+          if (!current) return prev;
+          return { ...prev, [teamId]: current.filter((session) => session.id !== sessionId) };
         });
       };
 
@@ -1801,6 +2454,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .map((story) => ({
         id: `hi-${story!.id}`,
         image: story!.image,
+        mediaType: story!.mediaType ?? 'image',
         caption: story!.caption,
         sourceStoryId: story!.id,
       }));
@@ -2244,15 +2898,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const getTeamFollowing = useCallback(
     (teamId: string) => {
-      const ids =
-        myTeamIds.includes(teamId) && (!useDb || teamId === activeTeamId)
-          ? followingIds
-          : useDb
-            ? []
-            : INITIAL_TEAM_FOLLOWING[teamId] ?? [];
+      let ids: string[];
+      if (useDb) {
+        ids = followingIdsByTeam[teamId] ?? [];
+      } else if (myTeamIds.includes(teamId)) {
+        ids = followingIds;
+      } else {
+        ids = INITIAL_TEAM_FOLLOWING[teamId] ?? [];
+      }
       return ids.map((id) => teams.find((t) => t.id === id)).filter(Boolean) as BandTeam[];
     },
-    [myTeamIds, followingIds, teams, useDb, activeTeamId],
+    [followingIdsByTeam, followingIds, myTeamIds, teams, useDb],
   );
 
   const value: AppState = {
@@ -2266,6 +2922,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     sessions,
     teamPracticeSongs,
     stories: activeStories,
+    allStories: stories,
     highlights,
     teamAudios,
     chatMessages,
@@ -2275,6 +2932,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     isActiveTeamLeader,
     canManageActiveTeam,
     canManageTeam,
+    publicSessionsByTeamId,
     transferTeamLeadership,
     setTeamCoLeader,
     refreshAppData,
@@ -2289,11 +2947,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toggleLike,
     addComment,
     addAudioComment,
-    updateAudioComment,
     deleteAudioComment,
     toggleAudioCommentLike,
     toggleAudioLike,
-    updateComment,
     deleteComment,
     toggleCommentLike,
     addEvent,
@@ -2301,8 +2957,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     addSession,
     addTeamPracticeSong,
     updatePracticeSession,
+    togglePracticeSessionPublic,
+    loadPublicPracticeSessions,
+    getPublicPracticeSessions,
+    togglePracticeSessionLike,
+    loadPracticeSessionComments,
+    getPracticeSessionComments,
+    addPracticeSessionComment,
+    deletePracticeSessionComment,
+    togglePracticeSessionCommentLike,
+    loadPracticeTrackSocial,
+    getPracticeTrackLike,
+    togglePracticeTrackLike,
+    getPracticeTrackComments,
+    addPracticeTrackComment,
+    deletePracticeTrackComment,
+    togglePracticeTrackCommentLike,
     promoteTeamPracticeSong,
     loadTeamPracticeSongs,
+    loadTeamFollowing,
     isOwnPracticeSession,
     isOwnTeamPracticeSong,
     deleteSession,

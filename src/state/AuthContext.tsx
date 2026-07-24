@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -12,7 +13,9 @@ import type { AppUser } from '../types';
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
 import { DB_TABLES } from '../lib/databaseTables';
 import { deleteReplacedStorageUrl } from '../services/storageService';
+import { sanitizeAvatarUrl } from '../mock/memberUtils';
 import { INSTAGRAM_COLUMN_MISSING_MESSAGE, isMissingInstagramColumnError } from '../utils/dbErrors';
+import { clearPracticeSocialCaches } from '../utils/clearPracticeSocialCaches';
 
 interface DbProfile {
   display_name: string;
@@ -49,7 +52,7 @@ function mapProfile(userId: string, row: DbProfile | null, fallbackEmail?: strin
   return {
     id: userId,
     name: row?.display_name?.trim() || fallbackEmail?.split('@')[0] || 'User',
-    avatar: row?.avatar_url?.trim() ?? '',
+    avatar: sanitizeAvatarUrl(row?.avatar_url?.trim() ?? ''),
     bio: row?.bio?.trim() || undefined,
     instagram: row?.instagram?.trim() || undefined,
   };
@@ -88,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<AppUser | null>(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
+  const prevAuthUserIdRef = useRef<string | null | undefined>(undefined);
 
   const loadProfile = useCallback(async (user: User) => {
     const row = await fetchDbProfile(user.id);
@@ -111,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       const nextSession = data.session ?? null;
+      prevAuthUserIdRef.current = nextSession?.user?.id ?? null;
       setSession(nextSession);
       if (nextSession?.user) {
         void loadProfile(nextSession.user).finally(() => {
@@ -125,6 +130,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      const nextUserId = nextSession?.user?.id ?? null;
+      const prevUserId = prevAuthUserIdRef.current;
+      if (prevUserId !== undefined && nextUserId !== prevUserId) {
+        clearPracticeSocialCaches();
+      }
+      prevAuthUserIdRef.current = nextUserId;
       setSession(nextSession);
       if (nextSession?.user) {
         void loadProfile(nextSession.user);
@@ -149,6 +160,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (error) return { ok: false, message: error.message };
+    localStorage.removeItem('band-crew-state-v1');
+    clearPracticeSocialCaches();
     return { ok: true, message: '로그인했어요.' };
   }, []);
 
@@ -178,6 +191,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     localStorage.removeItem('band-crew-state-v1');
+    clearPracticeSocialCaches();
     return { ok: true, message: '가입하고 로그인했어요.' };
   }, []);
 
@@ -185,6 +199,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const supabase = getSupabase();
     if (!supabase) return;
     await supabase.auth.signOut();
+    localStorage.removeItem('band-crew-state-v1');
+    clearPracticeSocialCaches();
     setSession(null);
     setProfile(null);
   }, []);

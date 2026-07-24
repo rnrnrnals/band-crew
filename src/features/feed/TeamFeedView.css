@@ -298,13 +298,19 @@
   margin-bottom: 16px;
 }
 
+.tf-actions-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .tf-settings-btn,
 .tf-upload-btn,
 .tf-members-btn,
+.tf-practice-room-btn,
 .tf-follow-btn {
-  padding: 9px 10px;
+  padding: 12px 8px;
   font-size: 12px;
   text-align: center;
+  line-height: 1.25;
 }
 
 .tf-tabs {

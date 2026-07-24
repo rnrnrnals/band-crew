@@ -1,0 +1,138 @@
+.team-public-practice-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.team-public-practice-sheet {
+  width: min(100%, 480px);
+  max-height: min(82vh, 560px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  box-shadow: var(--shadow);
+}
+
+.team-public-practice-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.team-public-practice-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.team-public-practice-close {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.team-public-practice-sub {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.team-public-practice-error {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--red);
+}
+
+.team-public-practice-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.team-public-practice-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: var(--surface-raised);
+  padding: 10px 10px 10px 14px;
+}
+
+.team-public-practice-item:hover {
+  border-color: var(--hairline-strong);
+}
+
+.team-public-practice-item-main {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 4px 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+
+.team-public-practice-like {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.team-public-practice-like.is-liked {
+  color: var(--red);
+}
+
+.team-public-practice-like:active {
+  opacity: 0.75;
+}
+
+.team-public-practice-room {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  overflow-y: auto;
+  background: var(--bg);
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.team-public-practice-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.team-public-practice-item-body strong {
+  font-size: 15px;
+}
+
+.team-public-practice-item-body span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.team-public-practice-empty {
+  margin: 0;
+  padding: 28px 12px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13px;
+}

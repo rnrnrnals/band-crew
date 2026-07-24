@@ -32,10 +32,13 @@ export interface BandTeam {
   members: TeamMember[];
 }
 
+export type StoryMediaType = 'image' | 'video';
+
 export interface Story {
   id: string;
   teamId: string;
   image: string;
+  mediaType?: StoryMediaType;
   caption: string;
   createdAt: string;
 }
@@ -43,6 +46,7 @@ export interface Story {
 export interface HighlightItem {
   id: string;
   image: string;
+  mediaType?: StoryMediaType;
   caption: string;
   sourceStoryId?: string;
 }
@@ -114,6 +118,9 @@ export interface PracticeSessionMeta {
   bpm: number;
   updatedAt: string;
   authorUserId?: string;
+  isPublic?: boolean;
+  likes?: number;
+  likedByMe?: boolean;
 }
 
 /** Team feed "연습중" song — not a practice-room session. */

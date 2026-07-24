@@ -16,7 +16,8 @@
 }
 
 .session-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -27,12 +28,129 @@
   overflow: hidden;
 }
 
-.session-card-main {
+.session-card.has-likes {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.session-card:has(.session-card-actions) {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.session-card.has-likes:has(.session-card-actions) {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+
+.session-card-likes {
+  justify-self: center;
+  align-self: center;
+  min-width: 44px;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--red);
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+.session-card-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex: 1;
+  gap: 2px;
+  margin-right: 10px;
+}
+
+.session-card.is-public {
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    linear-gradient(
+      45deg,
+      #f09433 0%,
+      #e6683c 25%,
+      #dc2743 50%,
+      #cc2366 75%,
+      #bc1888 100%
+    )
+    border-box;
+}
+
+.session-public-toggle {
+  flex-shrink: 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 7px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.session-public-toggle.is-public-label {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(
+    45deg,
+    #f09433 0%,
+    #e6683c 25%,
+    #dc2743 50%,
+    #cc2366 75%,
+    #bc1888 100%
+  );
+}
+
+.session-public-toggle.is-private-label {
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+}
+
+.session-public-toggle:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.session-edit,
+.session-delete {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 6px 6px;
+}
+
+.session-edit:hover {
+  color: var(--brand);
+}
+
+.session-delete:hover {
+  color: #e07070;
+}
+
+.session-title-input {
+  width: 100%;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 15px;
+  font-weight: 600;
+  background: var(--surface-raised);
+  color: inherit;
+}
+
+.session-title-input:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+.session-card-main {
+  display: block;
   min-width: 0;
   text-align: left;
   padding: 14px;
@@ -40,21 +158,6 @@
   border: none;
   cursor: pointer;
   color: inherit;
-}
-
-.session-delete {
-  flex-shrink: 0;
-  margin-right: 10px;
-  border: none;
-  background: none;
-  color: var(--text-faint);
-  font-size: 11px;
-  cursor: pointer;
-  padding: 6px 8px;
-}
-
-.session-delete:hover {
-  color: #e07070;
 }
 
 .session-card-main div {
@@ -70,13 +173,6 @@
 .session-card-main span {
   font-size: 12px;
   color: var(--text-muted);
-}
-
-.session-card-main .go {
-  color: var(--amber);
-  font-size: 13px;
-  font-weight: 600;
-  flex-shrink: 0;
 }
 
 .practice-list .empty {

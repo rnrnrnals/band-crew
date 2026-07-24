@@ -1,0 +1,138 @@
+.track-social {
+  margin-top: 8px;
+}
+
+.track-social-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.track-social-like,
+.track-social-comment-toggle {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.track-social-like.is-liked {
+  color: var(--red);
+}
+
+.track-social-comment-toggle.is-open {
+  color: var(--text);
+}
+
+.track-social-like:active,
+.track-social-comment-toggle:active {
+  opacity: 0.75;
+}
+
+.track-social-comments {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--hairline);
+}
+
+.track-social-error {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--red);
+}
+
+.track-social-comment-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.track-social-comment-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.track-social-comment-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.track-social-comment-like {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.track-social-comment-like.is-liked {
+  color: var(--red);
+}
+
+.track-social-comment-line {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.track-social-comment-line span:last-child {
+  color: var(--text-muted);
+}
+
+.track-social-comment-delete {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--red);
+  cursor: pointer;
+}
+
+.track-social-comment-empty {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.track-social-comment-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.track-social-comment-form input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--surface-raised);
+}
+
+.track-social-comment-form .btn {
+  flex-shrink: 0;
+  min-width: 52px;
+  padding-inline: 12px;
+}

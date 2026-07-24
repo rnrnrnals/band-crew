@@ -33,6 +33,29 @@ export async function fetchFollowersMap(teamIds: string[]): Promise<Record<strin
   return map;
 }
 
+export async function fetchFollowingMap(
+  followerTeamIds: string[],
+): Promise<Record<string, string[]>> {
+  if (followerTeamIds.length === 0) return {};
+  const supabase = requireSupabase();
+  const { data, error } = await supabase
+    .from(DB_TABLES.teamFollows)
+    .select('follower_team_id, following_team_id')
+    .in('follower_team_id', followerTeamIds);
+
+  if (error) throw error;
+
+  const map: Record<string, string[]> = {};
+  for (const row of data ?? []) {
+    const followerId = row.follower_team_id as string;
+    const followingId = row.following_team_id as string;
+    const list = map[followerId] ?? [];
+    list.push(followingId);
+    map[followerId] = list;
+  }
+  return map;
+}
+
 export async function toggleFollowInDb(
   followerTeamId: string,
   followingTeamId: string,

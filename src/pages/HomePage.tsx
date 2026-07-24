@@ -60,13 +60,25 @@ export function HomePage() {
     prevPathRef.current = location.pathname;
   }, [location.pathname, refreshHomeContent]);
 
-  const allItems = useMemo(
-    () => buildHomeFeedItems(posts, teamAudios),
+  const postsRef = useRef(posts);
+  const teamAudiosRef = useRef(teamAudios);
+  postsRef.current = posts;
+  teamAudiosRef.current = teamAudios;
+
+  const feedItemKeys = useMemo(
+    () =>
+      [
+        ...posts.map((p) => `post:${p.id}`),
+        ...teamAudios.map((a) => `audio:${a.id}`),
+      ].join('\0'),
     [posts, teamAudios],
   );
 
-  const feed = useMemo(() => {
-    return rankHomeFeedItems(allItems, {
+  const [feedOrder, setFeedOrder] = useState<string[]>([]);
+
+  useEffect(() => {
+    const items = buildHomeFeedItems(postsRef.current, teamAudiosRef.current);
+    const ranked = rankHomeFeedItems(items, {
       followingIds,
       myTeamIds,
       activeTeamId,
@@ -74,14 +86,36 @@ export function HomePage() {
       seen: seenSnapshotRef.current,
       now: feedRankEpoch,
     });
+    setFeedOrder(ranked.map((item) => `${item.kind}:${item.id}`));
   }, [
-    allItems,
+    feedItemKeys,
     followingIds,
     myTeamIds,
     activeTeamId,
     pinnedFeedTeamIds,
     feedRankEpoch,
   ]);
+
+  const feed = useMemo(() => {
+    const byKey = new Map<string, HomeFeedItem>();
+    for (const item of buildHomeFeedItems(posts, teamAudios)) {
+      byKey.set(`${item.kind}:${item.id}`, item);
+    }
+
+    const ordered: HomeFeedItem[] = [];
+    const placed = new Set<string>();
+    for (const key of feedOrder) {
+      const item = byKey.get(key);
+      if (!item) continue;
+      ordered.push(item);
+      placed.add(key);
+    }
+    for (const item of byKey.values()) {
+      const key = `${item.kind}:${item.id}`;
+      if (!placed.has(key)) ordered.push(item);
+    }
+    return ordered;
+  }, [feedOrder, posts, teamAudios]);
 
   const handleFeedItemSeen = useCallback((key: string) => {
     markFeedItemSeen(key);
